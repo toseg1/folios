@@ -1,6 +1,9 @@
+from datetime import date
+
 import typer
 
 from folios import __version__, db, seed
+from folios import fx as fx_module
 
 app = typer.Typer(
     name="folios",
@@ -43,6 +46,36 @@ def init() -> None:
             typer.echo(line)
         for warning in result.warnings:
             typer.echo(f"warning: {warning}")
+    finally:
+        conn.close()
+
+
+@app.command()
+def fx(
+    since: str = typer.Option(
+        ...,
+        "--since",
+        help="ISO date (YYYY-MM-DD). Only used as a floor when no rates "
+        "are stored yet — later runs resume from the last stored date.",
+    ),
+) -> None:
+    """Fetch EUR-based FX rates for every currency used in config/."""
+    since_date = date.fromisoformat(since)
+    conn = db.connect()
+    try:
+        currencies = fx_module.currencies_from_config()
+        if not currencies:
+            typer.echo("no currencies found in config/, nothing to fetch")
+            return
+
+        start = fx_module.determine_fetch_start(conn, since_date)
+        provider = fx_module.FrankfurterFxProvider()
+        rates = provider.fetch_rates(start, currencies)
+        inserted = fx_module.store_rates(conn, rates)
+        typer.echo(
+            f"stored {inserted} rate rows for "
+            f"{', '.join(sorted(c for c in currencies if c != 'EUR'))}"
+        )
     finally:
         conn.close()
 
