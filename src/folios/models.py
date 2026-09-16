@@ -165,3 +165,66 @@ def compute_txn_hash(raw_row: dict[str, Any]) -> str:
         f"{col}={(raw_row.get(col) or '').strip()}" for col in ENTRY_CSV_COLUMNS
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# Sign the loader applies to the CSV's always-positive `quantity`, per the
+# §3 sign convention table. Types absent here have no quantity concept
+# (DIVIDEND, INTEREST, FEE, TAX, DEPOSIT, WITHDRAWAL) — quantity stays NULL.
+#
+# SPLIT's CSV shape isn't specified by the build plan (the Form takes "new
+# total quantity", the loader computes the delta) — treated additively
+# here as a known simplification; not yet correct for a reverse split
+# entered directly via CSV.
+QUANTITY_SIGN: dict[str, int] = {
+    "BUY": 1,
+    "SELL": -1,
+    "TRANSFER_IN": 1,
+    "TRANSFER_OUT": -1,
+    "OPENING_BALANCE": 1,
+    "STAKING": 1,
+    "SPLIT": 1,
+}
+
+
+def compute_signed_quantity(row: EntryRow) -> Decimal | None:
+    if row.quantity is None:
+        return None
+    sign = QUANTITY_SIGN.get(row.type)
+    return sign * row.quantity if sign is not None else None
+
+
+def effective_gross(row: EntryRow) -> Decimal | None:
+    """gross as entered, or computed from quantity x price when left
+    blank on a trade — build-plan §4: "Leave gross empty on a trade and
+    the loader computes quantity x price"."""
+    if row.gross is not None:
+        return row.gross
+    if row.quantity is not None and row.price is not None:
+        return row.quantity * row.price
+    return None
+
+
+# net_amount per txn_type, from each type's (gross, fee, tax). Mirrors the
+# sign_convention CHECK in migrations/001_schemas_and_core.sql — kept in
+# sync by hand for the same reason TXN_TYPES is: a new type needs a
+# migration and code either way.
+_NET_AMOUNT_FORMULA: dict[str, Any] = {
+    "BUY": lambda g, fee, tax: -(g + fee + tax),
+    "SELL": lambda g, fee, tax: g - fee - tax,
+    "DIVIDEND": lambda g, fee, tax: g - fee - tax,
+    "INTEREST": lambda g, fee, tax: g - fee - tax,
+    "STAKING": lambda g, fee, tax: Decimal("0"),
+    "FEE": lambda g, fee, tax: -g,
+    "TAX": lambda g, fee, tax: -g,
+    "DEPOSIT": lambda g, fee, tax: g - fee - tax,
+    "WITHDRAWAL": lambda g, fee, tax: -(g + fee + tax),
+    "TRANSFER_IN": lambda g, fee, tax: Decimal("0"),
+    "TRANSFER_OUT": lambda g, fee, tax: Decimal("0"),
+    "SPLIT": lambda g, fee, tax: Decimal("0"),
+    "OPENING_BALANCE": lambda g, fee, tax: -g,
+}
+
+
+def compute_net_amount(row: EntryRow) -> Decimal:
+    gross = effective_gross(row) or Decimal("0")
+    return _NET_AMOUNT_FORMULA[row.type](gross, row.fee, row.tax)

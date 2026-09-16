@@ -5,6 +5,7 @@ import typer
 
 from folios import __version__, db, seed
 from folios import fx as fx_module
+from folios import loader as loader_module
 from folios import validate as validate_module
 
 app = typer.Typer(
@@ -104,6 +105,50 @@ def validate(
         typer.echo(f"{error_count} error(s)", err=True)
         raise typer.Exit(code=1)
     typer.echo("no errors")
+
+
+@app.command()
+def load(
+    path: str = typer.Argument(
+        str(validate_module.DEFAULT_ENTRIES_PATH),
+        help="Transactions CSV to load (defaults to data/manual/transactions.csv)",
+    ),
+) -> None:
+    """Load a transactions CSV. Refuses to insert anything if any row
+    fails validation."""
+    conn = db.connect()
+    try:
+        try:
+            result = loader_module.load_file(conn, Path(path))
+        except loader_module.LoadValidationError as exc:
+            for error in exc.errors:
+                typer.echo(error, err=True)
+            raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
+
+    typer.echo(
+        f"read {result.rows_read}, inserted {result.rows_inserted}, "
+        f"updated {result.rows_updated}, skipped {result.rows_skipped}"
+    )
+    for entry_id, fields in result.updated_fields.items():
+        typer.echo(f"  {entry_id}: changed {', '.join(fields)}")
+
+
+@app.command()
+def rebuild() -> None:
+    """Reproduce core.transactions and reference data from config/ and
+    data/manual/ alone. Never touches fx_rates or prices — those come
+    from external APIs, not files."""
+    conn = db.connect()
+    try:
+        result = loader_module.rebuild(conn)
+    finally:
+        conn.close()
+    typer.echo(
+        f"rebuilt: read {result.rows_read}, inserted {result.rows_inserted}, "
+        f"updated {result.rows_updated}, skipped {result.rows_skipped}"
+    )
 
 
 if __name__ == "__main__":

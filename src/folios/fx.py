@@ -103,11 +103,13 @@ def store_rates(
     return len(rows)
 
 
-def _lookup_eur_rate(conn: psycopg.Connection, rate_date: date, quote_ccy: str) -> Decimal:
+def _lookup_eur_rate_with_date(
+    conn: psycopg.Connection, rate_date: date, quote_ccy: str
+) -> tuple[Decimal, date]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT rate FROM core.fx_rates
+            SELECT rate, rate_date FROM core.fx_rates
             WHERE base_ccy = 'EUR' AND quote_ccy = %s AND rate_date <= %s
             ORDER BY rate_date DESC
             LIMIT 1
@@ -120,7 +122,26 @@ def _lookup_eur_rate(conn: psycopg.Connection, rate_date: date, quote_ccy: str) 
             f"no EUR/{quote_ccy} rate on or before {rate_date} — "
             f"run `folios fx --since <date>` first"
         )
-    return row[0]
+    return row[0], row[1]
+
+
+def resolve_rate_with_date(
+    conn: psycopg.Connection, rate_date: date, base_ccy: str, quote_ccy: str
+) -> tuple[Decimal, date]:
+    """Like resolve_rate, but also returns the date the rate actually came
+    from (which can be earlier than rate_date — a weekend or holiday
+    resolves backwards). The loader freezes both onto the transaction row."""
+    if base_ccy == quote_ccy:
+        return Decimal("1"), rate_date
+    if base_ccy == "EUR":
+        return _lookup_eur_rate_with_date(conn, rate_date, quote_ccy)
+    if quote_ccy == "EUR":
+        rate, matched_date = _lookup_eur_rate_with_date(conn, rate_date, base_ccy)
+        return Decimal("1") / rate, matched_date
+    # Cross rate: derive through EUR, per §3 — only one direction is ever stored.
+    quote_rate, quote_date = _lookup_eur_rate_with_date(conn, rate_date, quote_ccy)
+    base_rate, base_date = _lookup_eur_rate_with_date(conn, rate_date, base_ccy)
+    return quote_rate / base_rate, max(quote_date, base_date)
 
 
 def resolve_rate(
@@ -130,13 +151,4 @@ def resolve_rate(
     goes through this, no exceptions. Most recent rate on or before
     rate_date, never interpolated. A currency against itself is always 1,
     resolved without touching the database."""
-    if base_ccy == quote_ccy:
-        return Decimal("1")
-    if base_ccy == "EUR":
-        return _lookup_eur_rate(conn, rate_date, quote_ccy)
-    if quote_ccy == "EUR":
-        return Decimal("1") / _lookup_eur_rate(conn, rate_date, base_ccy)
-    # Cross rate: derive through EUR, per §3 — only one direction is ever stored.
-    return _lookup_eur_rate(conn, rate_date, quote_ccy) / _lookup_eur_rate(
-        conn, rate_date, base_ccy
-    )
+    return resolve_rate_with_date(conn, rate_date, base_ccy, quote_ccy)[0]
