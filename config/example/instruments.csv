@@ -1,0 +1,6 @@
+instrument_id,isin,yf_symbol,name,asset_class,instrument_type,currency,region,sector,issuer,domicile_country,protection_type,is_pea_eligible,price_source,is_active
+DEMO-SHARE,FR0000000001,DEMO.PA,Demo Corp,EQUITY,SHARE,EUR,FRANCE,TECHNOLOGY,,FR,MARKET_EXPOSED,true,yfinance,true
+DEMO-ETF-WORLD,IE00000000ET,DEMW.PA,Demo World ETF,ETP,ETF,EUR,GLOBAL,DIVERSIFIED,Demo Issuer,IE,MARKET_EXPOSED,true,yfinance,true
+DEMO-FUND-BOND,FR0000000002,,Demo Bond Fund,FUND,OPCVM,EUR,EUROPE,DIVERSIFIED,Demo AM,FR,MARKET_EXPOSED,false,manual,true
+DEMO-BOND-2030,FR0000000003,,Demo Govt Bond 2030,BOND,BOND,EUR,FRANCE,,French Treasury,FR,MARKET_EXPOSED,false,manual,true
+DEMO-CRYPTO-BTC,,BTC-EUR,Bitcoin,CRYPTO,TOKEN,EUR,GLOBAL,,,,MARKET_EXPOSED,,yfinance,true
