@@ -1,0 +1,37 @@
+# Fully optional, and a separate Docker Compose project from docker/
+# on purpose — two distinct containers, never coupled. If you already run
+# Metabase (anywhere — this machine, another one, hosted), skip this
+# folder entirely and just point it at 127.0.0.1:${POSTGRES_PORT:-5432},
+# database `folios`, role `metabase_ro` (see docker/initdb/01-roles.sql and
+# build-plan step 10). No command here is required for that to work.
+#
+# This container reaches folios' Postgres exactly the way any other
+# already-running Metabase would — through the published host port via
+# host.docker.internal, not a shared Docker network. That's deliberate:
+# it proves nothing in docker/compose.yml needs to know this exists.
+services:
+  metabase:
+    # amd64-only image; runs fine under emulation on Apple Silicon
+    # (Docker Desktop handles this transparently, just a bit slower to boot).
+    image: metabase/metabase:v0.51.4
+    container_name: folios-metabase
+    restart: unless-stopped
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: host.docker.internal
+      MB_DB_PORT: ${POSTGRES_PORT:-5432}
+      MB_DB_DBNAME: metabase_app
+      MB_DB_USER: metabase_app
+      MB_DB_PASS: ${METABASE_APP_PASSWORD:?set METABASE_APP_PASSWORD in ../.env}
+    extra_hosts:
+      # host.docker.internal is native on Docker Desktop (Mac/Windows);
+      # this makes it resolve on Linux too.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${METABASE_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s

@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:18.0
+    container_name: folios-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD in .env}
+      POSTGRES_DB: folios
+      FOLIOS_LOADER_PASSWORD: ${FOLIOS_LOADER_PASSWORD:?set FOLIOS_LOADER_PASSWORD in .env}
+      METABASE_APP_PASSWORD: ${METABASE_APP_PASSWORD:?set METABASE_APP_PASSWORD in .env}
+      METABASE_RO_PASSWORD: ${METABASE_RO_PASSWORD:?set METABASE_RO_PASSWORD in .env}
+    ports:
+      # Bound to localhost only — the phone never talks to Postgres directly.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # postgres:18+ images store data under a version-specific subdirectory
+      # of /var/lib/postgresql — do not mount at .../data directly, the
+      # image refuses to start against that older layout.
+      - folios_pgdata:/var/lib/postgresql
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d folios"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  folios_pgdata:
+    name: folios_pgdata
