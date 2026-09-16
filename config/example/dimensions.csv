@@ -1,0 +1,24 @@
+dimension,code,label_fr,label_en,sort_order
+account_type,securities,Compte titres,Securities account,10
+account_type,cash,Compte especes,Cash account,20
+fiscal_envelope,CTO,Compte-titres ordinaire,Ordinary securities account,10
+fiscal_envelope,PEA,Plan d'epargne en actions,Equity savings plan,20
+fiscal_envelope,CURRENT,Compte courant,Current account,30
+custody_type,BROKER,Courtier,Broker,10
+custody_type,BANK,Banque,Bank,20
+asset_class,EQUITY,Action,Equity,10
+asset_class,ETP,Produit cote,Exchange-traded product,20
+asset_class,FUND,Fonds,Fund,30
+asset_class,BOND,Obligation,Bond,40
+asset_class,CRYPTO,Cryptoactif,Crypto asset,50
+instrument_type,SHARE,Action,Share,10
+instrument_type,ETF,ETF,ETF,20
+instrument_type,OPCVM,OPCVM,Mutual fund,30
+instrument_type,BOND,Obligation,Bond,40
+instrument_type,TOKEN,Jeton,Token,50
+region,EUROPE,Europe,Europe,10
+region,GLOBAL,Monde,Global,20
+region,FRANCE,France,France,30
+sector,DIVERSIFIED,Diversifie,Diversified,10
+sector,TECHNOLOGY,Technologie,Technology,20
+protection_type,MARKET_EXPOSED,Expose au marche,Market exposed,10

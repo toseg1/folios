@@ -1,0 +1,17 @@
+- account_id: DEMO-BROKER-CTO
+  broker: Demo Broker
+  institution: Demo Broker SA
+  account_type: securities
+  fiscal_envelope: CTO
+  custody_type: BROKER
+  base_currency: EUR
+  opened_on: 2024-01-15
+
+- account_id: DEMO-BANK-CURRENT
+  broker: Demo Bank
+  institution: Demo Bank SA
+  account_type: cash
+  fiscal_envelope: CURRENT
+  custody_type: BANK
+  base_currency: EUR
+  opened_on: 2023-06-01

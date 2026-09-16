@@ -1,0 +1,2 @@
+instrument_id,chain,contract_address,token_standard,consensus,is_stablecoin,peg_currency
+DEMO-CRYPTO-BTC,Bitcoin,,NATIVE,POW,false,

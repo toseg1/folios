@@ -1,0 +1,3 @@
+instrument_id,legal_structure,is_ucits,rhp_years,distribution_policy,ongoing_charges,sri,replication_method,swap_counterparty,uses_sec_lending,depositary,sfdr_article,benchmark_index,justetf_id,subscription_price,withdrawal_price,management_company,property_sector,occupancy_rate,distribution_rate
+DEMO-ETF-WORLD,UCITS_FUND,true,5,ACCUMULATING,0.0020,4,PHYSICAL_FULL,,false,Demo Depositary Bank,8,MSCI World,IE00000000ET,,,,,,
+DEMO-FUND-BOND,UCITS_FUND,true,3,DISTRIBUTING,0.0045,2,PHYSICAL_FULL,,false,Demo Depositary Bank,6,,,,,,,,
