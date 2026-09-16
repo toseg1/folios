@@ -1,9 +1,9 @@
 import typer
 
-from folio import __version__
+from folios import __version__
 
 app = typer.Typer(
-    name="folio",
+    name="folios",
     help="A local, single-user portfolio tracker.",
     no_args_is_help=True,
 )
@@ -16,7 +16,7 @@ def main() -> None:
 
 @app.command()
 def version() -> None:
-    """Print the installed folio version."""
+    """Print the installed folios version."""
     typer.echo(__version__)
 
 

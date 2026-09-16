@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "folio"
+name = "folios"
 version = "0.1.0"
 description = "A local, single-user portfolio tracker."
 readme = "README.md"
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-folio = "folio.cli:app"
+folios = "folios.cli:app"
 
 [project.optional-dependencies]
 dev = [
