@@ -5,4 +5,4 @@ setup:
 
 check:
 	ruff check .
-	pytest --cov=folio
+	pytest --cov=folios
