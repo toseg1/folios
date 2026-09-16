@@ -1,0 +1,6 @@
+date,account,type,symbol,quantity,price,gross,fee,tax,currency,note
+2026-01-05,DEMO-BROKER-CTO,BUY,DEMO,10,100,1000,1,0,EUR,initial buy
+2026-01-20,DEMO-BROKER-CTO,DIVIDEND,DEMO,,,9.60,0,1.44,EUR,Q1 dividend
+2026-02-01,DEMO-BANK-CURRENT,DEPOSIT,,,,2000,0,0,EUR,monthly transfer
+2026-02-10,DEMO-BROKER-CTO,FEE,,,,5,0,0,EUR,custody fee
+2026-02-15,DEMO-BROKER-CTO,SELL,DEMO,5,110,550,1,0,EUR,partial sell

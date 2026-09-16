@@ -1,0 +1,10 @@
+date,account,type,symbol,quantity,price,gross,fee,tax,currency,note
+2026-01-10,UNKNOWN-ACC,DEPOSIT,,,,100,0,0,EUR,unknown account
+2099-01-01,DEMO-BROKER-CTO,DEPOSIT,,,,100,0,0,EUR,future date
+2026-01-10,DEMO-BROKER-CTO,INVALID_TYPE,,,,100,0,0,EUR,invalid type
+2026-01-10,DEMO-BROKER-CTO,BUY,UNKNOWN_SYMBOL,1,100,100,0,0,EUR,unresolved symbol
+2026-01-10,DEMO-BROKER-CTO,BUY,DEMO,10,100,500,0,0,EUR,gross mismatch
+2026-01-10,DEMO-BROKER-CTO,FEE,,,,5,1,0,EUR,fee populated on standalone fee row
+2026-01-10,DEMO-BROKER-CTO,SELL,DEMO,100,100,10000,0,0,EUR,sell drives position negative
+2026-01-10,DEMO-BANK-CURRENT,DEPOSIT,,,,100,0,0,JPY,missing fx rate
+2026-01-10,DEMO-BROKER-CTO,BUY,DEMO,1,100,100,0,0,USD,currency does not match instrument
