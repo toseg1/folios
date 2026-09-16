@@ -11,7 +11,9 @@ from folios import add as add_module
 from folios import fx as fx_module
 from folios import loader as loader_module
 from folios import prices as prices_module
+from folios import status as status_module
 from folios import validate as validate_module
+from folios import valuations as valuations_module
 from folios.models import EntryRow, compute_net_amount, effective_gross
 
 app = typer.Typer(
@@ -297,6 +299,47 @@ def prices() -> None:
     for warning in warnings:
         typer.echo(f"warning: {warning}")
     typer.echo(f"stored {stored} price rows")
+
+
+@app.command()
+def value(
+    path: str = typer.Argument(
+        str(valuations_module.DEFAULT_VALUATIONS_PATH),
+        help="Valuations CSV to load (defaults to data/manual/valuations.csv)",
+    ),
+) -> None:
+    """Load manual valuations (SCPI, unites de compte, unlisted funds —
+    anything with price_source=manual) into core.prices. Refuses to
+    write anything if any row fails validation."""
+    conn = db.connect()
+    try:
+        try:
+            result = valuations_module.load_valuations(conn, Path(path))
+        except valuations_module.ValuationError as exc:
+            for error in exc.errors:
+                typer.echo(error, err=True)
+            raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
+
+    typer.echo(f"read {result.rows_read}, stored {result.rows_stored}")
+
+
+@app.command()
+def status() -> None:
+    """Flags things worth a human's attention: stale manual valuations,
+    and more as later steps add checks here."""
+    conn = db.connect()
+    try:
+        findings = status_module.run_status_checks(conn)
+    finally:
+        conn.close()
+
+    if not findings:
+        typer.echo("nothing to flag")
+        return
+    for finding in findings:
+        typer.echo(str(finding))
 
 
 if __name__ == "__main__":
