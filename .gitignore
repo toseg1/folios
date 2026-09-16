@@ -11,18 +11,34 @@ Icon?
 .Spotlight-V100
 .Trashes
 
-# CSV Data generated
-*.csv
-data/
+# Real financial data and credentials — never commit.
+# data/samples/ (fixtures) and config/*.csv are deliberately NOT covered here.
+data/manual/
+data/raw/
+.env
+.credentials/
 
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
 
 # Local backups and editor leftovers
 *.bak
 *.orig
 *.swp
+
+# Runtime logs
+logs/
 
 # Documentation
 /docs
