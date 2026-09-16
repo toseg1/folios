@@ -10,6 +10,7 @@ from folios import __version__, db, seed
 from folios import add as add_module
 from folios import fx as fx_module
 from folios import loader as loader_module
+from folios import prices as prices_module
 from folios import validate as validate_module
 from folios.models import EntryRow, compute_net_amount, effective_gross
 
@@ -280,6 +281,22 @@ def add() -> None:
         )
     finally:
         conn.close()
+
+
+@app.command()
+def prices() -> None:
+    """Fetch closing prices for every yfinance-priced instrument ever
+    held, gap-filling from each instrument's last stored date.
+    price_source=manual instruments are skipped, not reported."""
+    conn = db.connect()
+    try:
+        stored, warnings = prices_module.refresh_prices(conn)
+    finally:
+        conn.close()
+
+    for warning in warnings:
+        typer.echo(f"warning: {warning}")
+    typer.echo(f"stored {stored} price rows")
 
 
 if __name__ == "__main__":

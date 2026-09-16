@@ -13,3 +13,14 @@ class FxProvider(Protocol):
         most recent available date. Returns {date: {quote_ccy: rate}} —
         only dates that actually have published rates (weekdays)."""
         ...
+
+
+class PriceProvider(Protocol):
+    def fetch_prices(
+        self, tickers: dict[str, str], since: date
+    ) -> dict[str, dict[date, tuple[Decimal, Decimal | None]]]:
+        """tickers: {instrument_id: yf_symbol}. Returns
+        {instrument_id: {date: (close, adj_close)}}, from `since` through
+        the most recent available trading day. An instrument whose ticker
+        can't be resolved is simply absent from the result, never raises."""
+        ...
