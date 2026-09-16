@@ -9,6 +9,7 @@ PyYAML==6.0.2
 requests==2.32.3
 tenacity==9.0.0
 python-dotenv==1.0.1
+yfinance==1.7.0
 
 # Dev / test
 ruff==0.7.4
