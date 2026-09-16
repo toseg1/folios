@@ -1,0 +1,28 @@
+# General macOS files
+.DS_Store
+.localized
+__MACOSX/
+.AppleDouble
+.LSOverride
+Icon?
+
+# Thumbnail and resource forks
+._*
+.Spotlight-V100
+.Trashes
+
+# CSV Data generated
+*.csv
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local backups and editor leftovers
+*.bak
+*.orig
+*.swp
+
+# Documentation
+/docs
