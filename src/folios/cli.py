@@ -1,9 +1,11 @@
 from datetime import date
+from pathlib import Path
 
 import typer
 
 from folios import __version__, db, seed
 from folios import fx as fx_module
+from folios import validate as validate_module
 
 app = typer.Typer(
     name="folios",
@@ -78,6 +80,30 @@ def fx(
         )
     finally:
         conn.close()
+
+
+@app.command()
+def validate(
+    path: str = typer.Argument(
+        str(validate_module.DEFAULT_ENTRIES_PATH),
+        help="Transactions CSV to check (defaults to data/manual/transactions.csv)",
+    ),
+) -> None:
+    """Validate a transactions CSV. A dry run — never writes to the database."""
+    conn = db.connect()
+    try:
+        messages = validate_module.validate_file(conn, Path(path))
+    finally:
+        conn.close()
+
+    for message in messages:
+        typer.echo(str(message))
+
+    error_count = sum(1 for m in messages if m.level == "error")
+    if error_count:
+        typer.echo(f"{error_count} error(s)", err=True)
+        raise typer.Exit(code=1)
+    typer.echo("no errors")
 
 
 if __name__ == "__main__":
