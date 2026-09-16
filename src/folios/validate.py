@@ -11,27 +11,10 @@ import psycopg
 from pydantic import ValidationError
 
 from folios import fx
-from folios.models import EntryRow, build_entry_id, compute_txn_hash
+from folios.models import QUANTITY_SIGN, EntryRow, build_entry_id, compute_txn_hash
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENTRIES_PATH = REPO_ROOT / "data" / "manual" / "transactions.csv"
-
-# Quantity-affecting types, signed the way core.transactions stores them.
-# The CSV itself only ever holds positive magnitudes (build-plan §4); this
-# is what turns "SELL 5" into "-5" for the running-position check.
-_QUANTITY_SIGN = {
-    "BUY": 1,
-    "SELL": -1,
-    "TRANSFER_IN": 1,
-    "TRANSFER_OUT": -1,
-    "OPENING_BALANCE": 1,
-    "STAKING": 1,
-    # SPLIT's CSV shape isn't specified by the build plan (the Form takes
-    # "new total quantity", the loader computes the delta) — treated
-    # additively here as a known simplification; not yet correct for a
-    # reverse split entered directly via CSV.
-    "SPLIT": 1,
-}
 
 
 @dataclass
@@ -52,17 +35,20 @@ def read_rows(path: Path) -> list[tuple[int, dict[str, Any]]]:
         return [(i + 2, row) for i, row in enumerate(reader)]
 
 
-def _relative_path(path: Path) -> str:
+def relative_path(path: Path) -> str:
     try:
         return str(path.relative_to(REPO_ROOT))
     except ValueError:
         return str(path)
 
 
-def _parse_rows(
+def parse_rows(
     path: Path,
 ) -> tuple[list[tuple[int, str, str, EntryRow]], list[Message]]:
-    relative = _relative_path(path)
+    """Parse every row through EntryRow. Returns (parsed rows, messages for
+    rows that failed to parse) — used by both `folios validate` and
+    `folios load`, so the two never disagree on what counts as valid."""
+    relative = relative_path(path)
     parsed: list[tuple[int, str, str, EntryRow]] = []
     messages: list[Message] = []
 
@@ -92,21 +78,35 @@ def _parse_rows(
     return parsed, messages
 
 
-def _known_accounts(conn: psycopg.Connection) -> set[str]:
+def known_accounts(conn: psycopg.Connection) -> set[str]:
     with conn.cursor() as cur:
         cur.execute("SELECT account_id FROM core.accounts")
         return {row[0] for row in cur.fetchall()}
 
 
-def _alias_to_instrument(conn: psycopg.Connection) -> dict[str, str]:
+def alias_to_instrument(conn: psycopg.Connection) -> dict[str, str]:
     with conn.cursor() as cur:
         cur.execute("SELECT alias, instrument_id FROM core.instrument_aliases")
         return dict(cur.fetchall())
 
 
-def _instrument_currencies(conn: psycopg.Connection) -> dict[str, str]:
+def instrument_currencies(conn: psycopg.Connection) -> dict[str, str]:
     with conn.cursor() as cur:
         cur.execute("SELECT instrument_id, currency FROM core.instruments")
+        return dict(cur.fetchall())
+
+
+def existing_txn_hashes(
+    conn: psycopg.Connection, entry_ids: set[str] | list[str]
+) -> dict[str, str]:
+    entry_ids = list(entry_ids)
+    if not entry_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT entry_id, txn_hash FROM core.transactions WHERE entry_id = ANY(%s)",
+            (entry_ids,),
+        )
         return dict(cur.fetchall())
 
 
@@ -127,7 +127,7 @@ def _existing_position(
             WHERE account_id = %s AND instrument_id = %s
               AND txn_type = ANY(%s) AND quantity IS NOT NULL
             """,
-            (account, instrument_id, list(_QUANTITY_SIGN)),
+            (account, instrument_id, list(QUANTITY_SIGN)),
         )
         rows = cur.fetchall()
     return sum(
@@ -136,15 +136,19 @@ def _existing_position(
     )
 
 
-def validate_file(conn: psycopg.Connection, path: Path) -> list[Message]:
-    """Every rule in build-plan §4. A dry run: never writes to
-    core.transactions, only reads reference data to check against."""
-    parsed, messages = _parse_rows(path)
+def validate_parsed(
+    conn: psycopg.Connection, parsed: list[tuple[int, str, str, EntryRow]]
+) -> list[Message]:
+    """The DB-dependent rules from build-plan §4, given already-parsed
+    rows. Split out from validate_file so the loader can run these once
+    against the same parsed rows it's about to insert, rather than
+    re-parsing the file a second time."""
+    messages: list[Message] = []
 
-    accounts = _known_accounts(conn)
-    aliases = _alias_to_instrument(conn)
+    accounts = known_accounts(conn)
+    aliases = alias_to_instrument(conn)
     alias_names = sorted(aliases)
-    instrument_currencies = _instrument_currencies(conn)
+    currencies_by_instrument = instrument_currencies(conn)
     file_entry_ids = {entry_id for _, entry_id, _, _ in parsed}
 
     for line, entry_id, _txn_hash, row in parsed:
@@ -187,7 +191,7 @@ def validate_file(conn: psycopg.Connection, path: Path) -> list[Message]:
             continue
         instrument_id = aliases.get(row.symbol)
         expected_currency = (
-            instrument_currencies.get(instrument_id) if instrument_id else None
+            currencies_by_instrument.get(instrument_id) if instrument_id else None
         )
         if expected_currency and row.currency != expected_currency:
             messages.append(
@@ -203,7 +207,7 @@ def validate_file(conn: psycopg.Connection, path: Path) -> list[Message]:
     for line, entry_id, _txn_hash, row in sorted(
         parsed, key=lambda p: (p[3].entry_date, p[0])
     ):
-        if row.symbol is None or row.type not in _QUANTITY_SIGN or row.quantity is None:
+        if row.symbol is None or row.type not in QUANTITY_SIGN or row.quantity is None:
             continue
         instrument_id = aliases.get(row.symbol)
         if instrument_id is None:
@@ -213,7 +217,7 @@ def validate_file(conn: psycopg.Connection, path: Path) -> list[Message]:
             positions[key] = _existing_position(
                 conn, row.account, instrument_id, file_entry_ids
             )
-        positions[key] += _QUANTITY_SIGN[row.type] * row.quantity
+        positions[key] += QUANTITY_SIGN[row.type] * row.quantity
         if row.type == "SELL" and positions[key] < 0:
             messages.append(
                 Message(
@@ -223,25 +227,26 @@ def validate_file(conn: psycopg.Connection, path: Path) -> list[Message]:
                 )
             )
 
-    if file_entry_ids:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT entry_id, txn_hash FROM core.transactions "
-                "WHERE entry_id = ANY(%s)",
-                (list(file_entry_ids),),
+    existing_hashes = existing_txn_hashes(conn, file_entry_ids)
+    for line, entry_id, txn_hash, _row in parsed:
+        existing = existing_hashes.get(entry_id)
+        if existing is None:
+            continue
+        if existing == txn_hash:
+            messages.append(
+                Message("info", line, entry_id, "unchanged, will be skipped")
             )
-            existing_hashes = dict(cur.fetchall())
-        for line, entry_id, txn_hash, _row in parsed:
-            existing = existing_hashes.get(entry_id)
-            if existing is None:
-                continue
-            if existing == txn_hash:
-                messages.append(
-                    Message("info", line, entry_id, "unchanged, will be skipped")
-                )
-            else:
-                messages.append(
-                    Message("info", line, entry_id, "changed, will be updated")
-                )
+        else:
+            messages.append(
+                Message("info", line, entry_id, "changed, will be updated")
+            )
 
+    return messages
+
+
+def validate_file(conn: psycopg.Connection, path: Path) -> list[Message]:
+    """Every rule in build-plan §4. A dry run: never writes to
+    core.transactions, only reads reference data to check against."""
+    parsed, messages = parse_rows(path)
+    messages += validate_parsed(conn, parsed)
     return messages
