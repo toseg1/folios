@@ -1,3 +1,5 @@
 alias,source,instrument_id
 DEMO,manual,DEMO-SHARE
 BTC,manual,DEMO-CRYPTO-BTC
+FUNDBOND,manual,DEMO-FUND-BOND
+BOND2030,manual,DEMO-BOND-2030
