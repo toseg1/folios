@@ -1,0 +1,41 @@
+# Deliberately minimal — `folios dashboard-init` exists to prove the
+# Metabase API mechanism works (cards + dashboard, free edition, no
+# serialization needed, since that's Pro/Enterprise only), not to ship a
+# finished dashboard. Build your real one directly in Metabase's own UI;
+# extend this file (or replicate yours here in code) later if that's
+# ever worth doing. See docs/folios-build-plan.md step 19.
+
+dashboard:
+  name: "folios — Overview"
+  description: >
+    Minimal example dashboard created by `folios dashboard-init` from
+    dashboards/main.yml.
+
+cards:
+  - name: "Allocation by asset class"
+    display: pie
+    query: |
+      SELECT asset_class, SUM(value_base) AS value_base
+      FROM marts.v_allocation
+      GROUP BY asset_class
+      ORDER BY value_base DESC
+
+  - name: "Holdings"
+    display: table
+    query: |
+      SELECT account_id, instrument_id, name, asset_class, quantity,
+             latest_price, market_value_base
+      FROM marts.v_positions
+      ORDER BY market_value_base DESC NULLS LAST
+
+layout:
+  - card: "Allocation by asset class"
+    row: 0
+    col: 0
+    size_x: 6
+    size_y: 6
+  - card: "Holdings"
+    row: 0
+    col: 6
+    size_x: 6
+    size_y: 6

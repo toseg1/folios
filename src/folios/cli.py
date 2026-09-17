@@ -11,6 +11,7 @@ from folios import add as add_module
 from folios import exposure as exposure_module
 from folios import fx as fx_module
 from folios import loader as loader_module
+from folios import metabase as metabase_module
 from folios import new_instrument as new_instrument_module
 from folios import prices as prices_module
 from folios import status as status_module
@@ -487,6 +488,31 @@ def sync() -> None:
 
     if not result.ok:
         raise typer.Exit(code=1)
+
+
+@app.command("dashboard-init")
+def dashboard_init() -> None:
+    """Creates a minimal example dashboard in Metabase from
+    dashboards/main.yml — cards + dashboard via the API (free edition;
+    Metabase serialization is Pro/Enterprise only). This is a starting
+    point, not a finished dashboard — build your real one directly in
+    Metabase and extend dashboards/main.yml when that's worth doing."""
+    try:
+        config = metabase_module.load_dashboard_config()
+        client = metabase_module.MetabaseClient(
+            metabase_module.get_metabase_url(), metabase_module.get_api_key()
+        )
+        result = metabase_module.dashboard_init(
+            config, client, metabase_module.get_database_name()
+        )
+    except metabase_module.MetabaseConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    url = f"{metabase_module.get_metabase_url()}/dashboard/{result['dashboard_id']}"
+    typer.echo(f"Dashboard created: {url}")
+    for name, card_id in result["card_ids"].items():
+        typer.echo(f"  card {card_id}: {name}")
 
 
 if __name__ == "__main__":
