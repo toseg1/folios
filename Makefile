@@ -1,4 +1,4 @@
-.PHONY: setup check up down metabase-up metabase-down install-launchd
+.PHONY: setup check up down metabase-up metabase-down install-launchd demo
 
 # No --project-directory: leaving it unset makes relative paths inside the
 # compose file (./initdb) resolve against docker/, where it actually lives.
@@ -44,3 +44,26 @@ install-launchd:
 		> ~/Library/LaunchAgents/com.folios.sync.plist
 	@echo "Installed. Now run:"
 	@echo "  launchctl load ~/Library/LaunchAgents/com.folios.sync.plist"
+
+# config/example/ -> config/, data/samples/transactions_good.csv ->
+# data/manual/transactions.csv, then init/load/prices — a fresh clone
+# reaches a populated database in one command. Refuses to touch config/
+# if it already holds something other than the example (never overwrite
+# real data). dashboard-init is best-effort: it needs a Metabase API key
+# from a one-time manual step (see SETUP.md / build-plan §7), so a
+# missing METABASE_API_KEY is reported, not a failure of the rest of demo.
+demo:
+	@if [ -f config/accounts.yml ] && ! diff -q config/accounts.yml config/example/accounts.yml > /dev/null 2>&1; then \
+		echo "config/accounts.yml already exists and differs from config/example/ — refusing to overwrite your real config."; \
+		echo "Run 'make demo' in a fresh clone instead, or remove config/*.csv and config/accounts.yml first."; \
+		exit 1; \
+	fi
+	cp config/example/accounts.yml config/accounts.yml
+	cp config/example/*.csv config/
+	mkdir -p data/manual
+	cp data/samples/transactions_good.csv data/manual/transactions.csv
+	folios init
+	folios load
+	folios prices
+	@folios dashboard-init || echo "Skipping dashboard-init for now — set up METABASE_API_KEY (see SETUP.md), then run 'folios dashboard-init' yourself."
+	@echo "Demo data loaded — run 'folios status' to see it, or open Metabase."

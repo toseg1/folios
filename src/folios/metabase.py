@@ -27,7 +27,7 @@ def get_metabase_url() -> str:
 def get_api_key() -> str:
     load_dotenv(REPO_ROOT / ".env")
     key = os.environ.get("METABASE_API_KEY")
-    if not key:
+    if not key or key == "change-me":
         raise MetabaseConfigError(
             "Set METABASE_API_KEY in .env — create one in Metabase under "
             "Admin settings -> Authentication -> API keys."
