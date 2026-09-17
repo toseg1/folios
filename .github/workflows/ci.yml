@@ -35,7 +35,11 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          # --no-deps: stockdex's own metadata pins curl_cffi==0.12.0,
+          # which conflicts with yfinance's >=0.15 — see requirements.txt.
+          pip install --no-deps stockdex==1.2.7
 
       - name: Lint
         run: ruff check .

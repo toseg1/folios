@@ -1,0 +1,11 @@
+dimension,source_label,code
+sector,Technology,TECHNOLOGY
+sector,Finance,FINANCE
+sector,Industrials,INDUSTRIALS
+sector,Healthcare,HEALTHCARE
+sector,Other,UNMAPPED
+country,United States,US
+country,Japan,JP
+country,United Kingdom,GB
+country,Canada,CA
+country,Other,UNMAPPED
