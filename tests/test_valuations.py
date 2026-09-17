@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from folios.seed import seed
-from folios.valuations import ValuationError, load_valuations, manual_priced_instruments
+from folios.valuations import ValuationError, load_all, load_valuations, manual_priced_instruments
 from tests.test_seed import EXAMPLE_CONFIG
 
 
@@ -99,3 +99,40 @@ def test_manual_priced_instruments_lists_all_with_last_valuation(seeded_conn, tm
     rows = {r["instrument_id"]: r for r in manual_priced_instruments(seeded_conn)}
     assert rows["DEMO-FUND-BOND"]["last_valued"] == date(2026, 3, 31)
     assert rows["DEMO-BOND-2030"]["last_valued"] is None
+
+
+def test_load_all_aggregates_across_files_and_skips_transaction_files(seeded_conn, tmp_path):
+    (tmp_path / "valuations.csv").write_text(
+        "date,symbol,price,currency\n2026-03-31,FUNDBOND,215.00,EUR\n"
+    )
+    (tmp_path / "gform_valuations_2026-04-01.csv").write_text(
+        "date,symbol,price,currency\n2026-04-01,BOND2030,101.00,EUR\n"
+    )
+    (tmp_path / "transactions.csv").write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-05,DEMO-BROKER-CTO,BUY,DEMO,10,100,1000,1,0,EUR,\n"
+    )
+
+    result, errors = load_all(seeded_conn, data_dir=tmp_path)
+
+    assert errors == []
+    assert result.rows_read == 2
+    assert result.rows_stored == 2
+    with seeded_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.prices")
+        assert cur.fetchone() == (2,)
+
+
+def test_load_all_continues_past_a_broken_valuation_file(seeded_conn, tmp_path):
+    (tmp_path / "valuations.csv").write_text(
+        "date,symbol,price,currency\n2026-03-31,FUNDBOND,215.00,EUR\n"
+    )
+    (tmp_path / "gform_valuations_2026-04-01.csv").write_text(
+        "date,symbol,price,currency\n2026-04-01,NOT_A_SYMBOL,101.00,EUR\n"
+    )
+
+    result, errors = load_all(seeded_conn, data_dir=tmp_path)
+
+    assert result.rows_stored == 1
+    assert len(errors) == 1
+    assert "NOT_A_SYMBOL" in errors[0]

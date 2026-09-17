@@ -14,6 +14,7 @@ from folios import loader as loader_module
 from folios import new_instrument as new_instrument_module
 from folios import prices as prices_module
 from folios import status as status_module
+from folios import sync as sync_module
 from folios import validate as validate_module
 from folios import valuations as valuations_module
 from folios.google import auth as google_auth
@@ -467,6 +468,25 @@ def fix_ticker(
         typer.echo(result.error, err=True)
         raise typer.Exit(code=1)
     typer.echo(f"{result.instrument_id}: yf_symbol set to {ticker}")
+
+
+@app.command()
+def sync() -> None:
+    """pull -> fx -> load -> value -> prices -> status, appended to
+    logs/sync.log. What `launchd` runs unattended (see launchd/) — every
+    step always runs, but exits non-zero if any step reported an error."""
+    conn = db.connect()
+    try:
+        result = sync_module.run_sync(conn)
+    finally:
+        conn.close()
+
+    log_path = sync_module.append_log(result)
+    typer.echo(sync_module.format_log_entry(result))
+    typer.echo(f"logged to {log_path}")
+
+    if not result.ok:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

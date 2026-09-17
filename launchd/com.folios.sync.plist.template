@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  folios sync, scheduled via launchd — not cron: launchd runs a missed
+  job when the machine wakes, cron silently skips it. On a laptop that
+  closes its lid most evenings, that's the whole reason this isn't cron.
+
+  This is a TEMPLATE — __FOLIOS_REPO__ gets substituted with an absolute
+  path by `make install-launchd` (see the Makefile). Don't edit the
+  installed copy in ~/Library/LaunchAgents/ directly; edit this template
+  and re-run `make install-launchd` instead, so it survives a reinstall.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.folios.sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__FOLIOS_REPO__/.venv/bin/folios</string>
+        <string>sync</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__FOLIOS_REPO__</string>
+
+    <!-- 19:00, Monday through Friday. Weekday 1=Monday .. 5=Friday. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Weekday</key><integer>1</integer>
+            <key>Hour</key><integer>19</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>2</integer>
+            <key>Hour</key><integer>19</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>3</integer>
+            <key>Hour</key><integer>19</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>4</integer>
+            <key>Hour</key><integer>19</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>5</integer>
+            <key>Hour</key><integer>19</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+    </array>
+
+    <!-- folios sync itself appends to logs/sync.log — these two just
+         catch anything printed outside that (a crash before logging
+         starts, a Python traceback, etc). -->
+    <key>StandardOutPath</key>
+    <string>__FOLIOS_REPO__/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__FOLIOS_REPO__/logs/launchd.err.log</string>
+
+    <!-- Don't fire immediately on load — only at the scheduled times
+         above (including catch-up runs launchd itself queues for a
+         missed interval, e.g. the lid being closed at 19:00). -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

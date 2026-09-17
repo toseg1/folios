@@ -199,6 +199,44 @@ def load_file(conn: psycopg.Connection, path: Path) -> LoadResult:
     return result
 
 
+def _transaction_files(data_dir: Path) -> list[Path]:
+    """Every transaction-shaped CSV in data_dir — the curated
+    transactions.csv plus every gform_<date>.csv `folios pull` has
+    written. Filenames containing "valuations" (valuations.csv,
+    gform_valuations_<date>.csv) live in the same directory but have a
+    different column shape entirely — see valuations.load_all."""
+    return sorted(p for p in data_dir.glob("*.csv") if "valuations" not in p.name)
+
+
+def load_all(
+    conn: psycopg.Connection, data_dir: Path | None = None
+) -> tuple[LoadResult, list[str]]:
+    """Loads every transaction file in data_dir, aggregating the result.
+    Unlike load_file's own all-or-nothing guarantee (which this still
+    honours per file), one bad file's errors don't block the others —
+    used by `folios sync`, where a broken phone submission shouldn't
+    also stop today's market-data refresh. Returns (aggregate result,
+    per-file error messages)."""
+    data_dir = data_dir if data_dir is not None else DEFAULT_DATA_DIR
+    total = LoadResult()
+    errors: list[str] = []
+    if not data_dir.exists():
+        return total, errors
+
+    for path in _transaction_files(data_dir):
+        try:
+            result = load_file(conn, path)
+        except LoadValidationError as exc:
+            errors.extend(str(e) for e in exc.errors)
+            continue
+        total.rows_read += result.rows_read
+        total.rows_inserted += result.rows_inserted
+        total.rows_updated += result.rows_updated
+        total.rows_skipped += result.rows_skipped
+        total.updated_fields.update(result.updated_fields)
+    return total, errors
+
+
 def rebuild(
     conn: psycopg.Connection,
     data_dir: Path | None = None,
@@ -223,7 +261,7 @@ def rebuild(
 
     total = LoadResult()
     if data_dir.exists():
-        for path in sorted(data_dir.glob("*.csv")):
+        for path in _transaction_files(data_dir):
             result = load_file(conn, path)
             total.rows_read += result.rows_read
             total.rows_inserted += result.rows_inserted
