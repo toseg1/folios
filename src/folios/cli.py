@@ -17,6 +17,7 @@ from folios import validate as validate_module
 from folios import valuations as valuations_module
 from folios.google import auth as google_auth
 from folios.google import forms as google_forms
+from folios.google import sheets as google_sheets
 from folios.models import EntryRow, compute_net_amount, effective_gross
 
 app = typer.Typer(
@@ -416,6 +417,34 @@ def form_sync() -> None:
     finally:
         conn.close()
     typer.echo(f"Updated {result['updated_items']} dropdown field(s) on form {result['form_id']}")
+
+
+@app.command()
+def pull() -> None:
+    """Reads new Form responses, writes transactions to
+    data/manual/gform_<date>.csv and manual valuations to
+    data/manual/gform_valuations_<date>.csv, and writes status/message
+    back into the response Sheet. Never writes to the database itself —
+    run `folios load` (and `folios value`) afterwards."""
+    conn = db.connect()
+    try:
+        try:
+            result = google_sheets.pull(conn)
+        except google_forms.FormNotInitializedError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
+
+    typer.echo(f"{result.responses_seen} new response(s)")
+    if result.transactions_written:
+        typer.echo(f"  {result.transactions_written} transaction row(s) written")
+    if result.valuations_written:
+        typer.echo(f"  {result.valuations_written} valuation row(s) written")
+    if result.deferred:
+        typer.echo(f"  {len(result.deferred)} deferred (new-instrument, not yet handled)")
+    for error in result.errors:
+        typer.echo(f"  error: {error}", err=True)
 
 
 if __name__ == "__main__":
