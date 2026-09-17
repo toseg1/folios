@@ -4,9 +4,11 @@ import pytest
 from folios.db import applied_migrations, pending_migrations, run_migrations
 
 
-def test_run_migrations_applies_001(clean_test_db):
+def test_run_migrations_applies_all_pending_in_order(clean_test_db):
     applied = run_migrations(clean_test_db)
-    assert applied == ["001_schemas_and_core.sql"]
+    assert applied == sorted(applied)  # filename order
+    assert "001_schemas_and_core.sql" in applied
+    assert pending_migrations(clean_test_db) == []
 
 
 def test_run_migrations_is_idempotent(migrated_conn):
