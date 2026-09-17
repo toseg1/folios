@@ -16,6 +16,7 @@ from folios import status as status_module
 from folios import validate as validate_module
 from folios import valuations as valuations_module
 from folios.google import auth as google_auth
+from folios.google import forms as google_forms
 from folios.models import EntryRow, compute_net_amount, effective_gross
 
 app = typer.Typer(
@@ -381,6 +382,40 @@ def auth() -> None:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Authenticated. Token stored at {google_auth.TOKEN_PATH}")
+
+
+@app.command("form-init")
+def form_init() -> None:
+    """Builds a fresh branching Google Form + a folios-managed response
+    Sheet from config/, and saves both ids to .credentials/form_state.json.
+    Re-running this creates a brand new Form/Sheet pair, not an update —
+    use `form-sync` to refresh an existing form's dropdowns in place."""
+    conn = db.connect()
+    try:
+        state = google_forms.form_init(conn)
+    finally:
+        conn.close()
+    typer.echo(f"Form created: {state.get('responder_uri')}")
+    typer.echo(f"Form id: {state['form_id']}")
+    typer.echo(f"Response sheet id: {state['sheet_id']}")
+    typer.echo(f"State saved to {google_forms.FORM_STATE_PATH}")
+
+
+@app.command("form-sync")
+def form_sync() -> None:
+    """Refreshes the Account/Symbol/Currency dropdown choices on the
+    existing form in place. Run after editing config/ (a new account,
+    instrument alias, or currency) — structure and routing are untouched."""
+    conn = db.connect()
+    try:
+        try:
+            result = google_forms.form_sync(conn)
+        except google_forms.FormNotInitializedError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
+    typer.echo(f"Updated {result['updated_items']} dropdown field(s) on form {result['form_id']}")
 
 
 if __name__ == "__main__":
