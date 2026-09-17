@@ -10,7 +10,7 @@ from typing import Any
 import psycopg
 from googleapiclient.discovery import build
 
-from folios import validate
+from folios import new_instrument, validate
 from folios.google.auth import get_credentials
 from folios.google.forms import (
     NOT_LISTED,
@@ -77,7 +77,7 @@ class PullResult:
     responses_seen: int = 0
     transactions_written: int = 0
     valuations_written: int = 0
-    deferred: list[str] = field(default_factory=list)
+    new_instruments: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 
@@ -227,7 +227,14 @@ def pull_responses(
     so a broken submission is flagged with the same message a human would
     get from the CLI. Never writes to core.transactions itself: the Sheet
     and these files are a transport, the loader is the only writer of
-    record. See docs/folios-build-plan.md step 15."""
+    record. See docs/folios-build-plan.md step 15.
+
+    A "not listed" Symbol answer is the one exception: it never reaches
+    core.transactions on this submission at all (the Form's branching
+    means Quantity/Price etc. were never asked), so there is nothing for
+    the loader to write. Instead this runs the new-instrument path
+    (build-plan step 16) immediately: validate the ticker, add it to
+    config/, reconcile it into the database via seed.seed()."""
     state = load_form_state()
     if state is None:
         raise FormNotInitializedError
@@ -262,12 +269,17 @@ def pull_responses(
         symbol = fields.get("Symbol", "")
 
         if symbol == NOT_LISTED:
-            status_by_response[response_id] = (
-                "pending",
-                "new-instrument submission, not processed yet "
-                "(build-plan step 16 / folios fix-ticker)",
-            )
-            result.deferred.append(response_id)
+            outcome = new_instrument.create_from_form_fields(conn, fields)
+            if outcome.error:
+                status_by_response[response_id] = ("error", outcome.error)
+                result.errors.append(f"{response_id}: {outcome.error}")
+            else:
+                status_by_response[response_id] = (
+                    "ok",
+                    f"created {outcome.instrument_id} (alias {outcome.alias}) — "
+                    f"run `folios form-sync` to use it",
+                )
+                result.new_instruments.append(outcome.instrument_id)
             continue
 
         if txn_type == VALUATION_TYPE:

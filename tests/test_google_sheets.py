@@ -1,8 +1,11 @@
+import shutil
 from datetime import date
 from typing import Any
 
 import pytest
 
+from folios import new_instrument
+from folios import seed as seed_module
 from folios.google import forms as google_forms
 from folios.google import sheets as google_sheets
 from folios.seed import seed
@@ -35,6 +38,12 @@ FORM_ITEMS = [
     {"title": "Tax", "questionItem": {"question": {"questionId": "q_tax"}}},
     {"title": "Currency", "questionItem": {"question": {"questionId": "q_currency"}}},
     {"title": "Note", "questionItem": {"question": {"questionId": "q_note"}}},
+    {"title": "Name", "questionItem": {"question": {"questionId": "q_name"}}},
+    {"title": "Yahoo ticker", "questionItem": {"question": {"questionId": "q_ticker"}}},
+    {"title": "ISIN", "questionItem": {"question": {"questionId": "q_isin"}}},
+    {"title": "Asset class", "questionItem": {"question": {"questionId": "q_asset_class"}}},
+    {"title": "Region", "questionItem": {"question": {"questionId": "q_region"}}},
+    {"title": "Sector", "questionItem": {"question": {"questionId": "q_sector"}}},
 ]
 
 _TITLE_TO_QUESTION_ID = {
@@ -95,6 +104,27 @@ class FakeSheetsService:
     def append(self, spreadsheetId, range, valueInputOption, insertDataOption, body):  # noqa: N803
         self.appended_rows.extend(body["values"])
         return _Exec({})
+
+
+class FakeTickerValidator:
+    def __init__(self, valid: bool = True):
+        self.valid = valid
+        self.checked: list[str] = []
+
+    def has_history(self, ticker: str) -> bool:
+        self.checked.append(ticker)
+        return self.valid
+
+
+@pytest.fixture()
+def writable_config_dir(tmp_path, monkeypatch):
+    """A real, on-disk copy of config/example — new_instrument.py writes
+    into seed.CONFIG_DIR for real, so tests must never point that at the
+    actual project config/."""
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
+    return config_copy
 
 
 def _save_form_state(tmp_path):
@@ -174,28 +204,86 @@ def test_pull_routes_valuation_type_to_valuations_file(seeded_conn, isolated_sta
     assert not txn_path.exists()
 
 
-def test_pull_defers_not_listed_symbol(seeded_conn, isolated_state):
+def test_pull_creates_new_instrument_from_not_listed_symbol(
+    seeded_conn, isolated_state, writable_config_dir, monkeypatch
+):
     _save_form_state(isolated_state)
+    fake_validator = FakeTickerValidator(valid=True)
+    monkeypatch.setattr(new_instrument, "YFinanceTickerValidator", lambda: fake_validator)
+
     response = _response(
         "r-new",
-        Date="2026-01-10",
-        Account="DEMO-BROKER-CTO",
-        Type="BUY",
-        Symbol=google_forms.NOT_LISTED,
+        **{
+            "Date": "2026-01-10",
+            "Account": "DEMO-BROKER-CTO",
+            "Type": "BUY",
+            "Symbol": google_forms.NOT_LISTED,
+            "Name": "Demo Newco",
+            "Yahoo ticker": "NEWCO.PA",
+            "Asset class": "EQUITY",
+            "Currency": "EUR",
+            "Region": "EUROPE",
+        },
     )
     forms_service = FakePullFormsService([response])
     sheets_service = FakeSheetsService()
 
     result = _pull(seeded_conn, forms_service, sheets_service)
 
-    assert result.deferred == ["r-new"]
+    assert result.new_instruments == ["NEWCO-PA"]
     assert result.transactions_written == 0
+    assert fake_validator.checked == ["NEWCO.PA"]
+
     row = sheets_service.appended_rows[0]
-    assert row[-2] == "pending"
-    assert "new-instrument" in row[-1]
+    assert row[-2] == "ok"
+    assert "NEWCO-PA" in row[-1]
+
+    instruments_csv = (writable_config_dir / "instruments.csv").read_text()
+    assert "NEWCO-PA" in instruments_csv
+    aliases_csv = (writable_config_dir / "aliases.csv").read_text()
+    assert "NEWCO-PA" in aliases_csv
+
+    # Reconciled into the database immediately, not just written to config.
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT instrument_id FROM core.instrument_aliases WHERE alias = 'NEWCO-PA'"
+        )
+        assert cur.fetchone() == ("NEWCO-PA",)
 
     txn_path = isolated_state / "manual" / "gform_2026-01-10.csv"
     assert not txn_path.exists()
+
+
+def test_pull_marks_error_when_ticker_has_no_history(
+    seeded_conn, isolated_state, writable_config_dir, monkeypatch
+):
+    _save_form_state(isolated_state)
+    fake_validator = FakeTickerValidator(valid=False)
+    monkeypatch.setattr(new_instrument, "YFinanceTickerValidator", lambda: fake_validator)
+
+    response = _response(
+        "r-bad-ticker",
+        **{
+            "Date": "2026-01-10",
+            "Account": "DEMO-BROKER-CTO",
+            "Type": "BUY",
+            "Symbol": google_forms.NOT_LISTED,
+            "Name": "Demo Newco",
+            "Yahoo ticker": "NOTREAL",
+            "Asset class": "EQUITY",
+            "Currency": "EUR",
+        },
+    )
+    forms_service = FakePullFormsService([response])
+    sheets_service = FakeSheetsService()
+
+    result = _pull(seeded_conn, forms_service, sheets_service)
+
+    assert result.new_instruments == []
+    assert len(result.errors) == 1
+    assert "NOTREAL" in result.errors[0]
+    row = sheets_service.appended_rows[0]
+    assert row[-2] == "error"
 
 
 def test_pull_marks_broken_submission_as_error_naming_the_field(seeded_conn, isolated_state):
