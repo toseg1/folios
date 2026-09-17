@@ -15,6 +15,7 @@ from folios import prices as prices_module
 from folios import status as status_module
 from folios import validate as validate_module
 from folios import valuations as valuations_module
+from folios.google import auth as google_auth
 from folios.models import EntryRow, compute_net_amount, effective_gross
 
 app = typer.Typer(
@@ -368,6 +369,18 @@ def exposure(
         typer.echo(f"skipped {reason}")
     for warning in result.warnings:
         typer.echo(f"warning: {warning}")
+
+
+@app.command()
+def auth() -> None:
+    """One-time Google OAuth (Forms/Sheets/Drive). Opens a browser once;
+    every subsequent Google call succeeds silently after this."""
+    try:
+        google_auth.authenticate()
+    except google_auth.MissingClientSecretError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Authenticated. Token stored at {google_auth.TOKEN_PATH}")
 
 
 if __name__ == "__main__":

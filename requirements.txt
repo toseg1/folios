@@ -32,6 +32,10 @@ selenium==4.49.0
 # `pip install stockdex` on this same requirements.txt would still
 # re-resolve its own curl_cffi==0.12.0 pin and hit the same conflict.
 
+google-auth==2.58.0
+google-auth-oauthlib==1.4.1
+google-api-python-client==2.200.0
+
 # Dev / test
 ruff==0.7.4
 pytest==8.3.3
