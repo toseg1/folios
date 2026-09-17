@@ -21,6 +21,13 @@ def clean_test_db():
         cur.execute("DROP SCHEMA IF EXISTS core CASCADE")
         cur.execute("DROP SCHEMA IF EXISTS marts CASCADE")
         cur.execute("DROP SCHEMA IF EXISTS staging CASCADE")
+        # docker/initdb/01-roles.sql creates this in the real stack;
+        # migrations/003_metabase_access.sql assumes it already exists.
+        # The role is cluster-level (DROP SCHEMA above doesn't touch it),
+        # so this only actually runs once per disposable cluster's life.
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro'")
+        if cur.fetchone() is None:
+            cur.execute("CREATE ROLE metabase_ro LOGIN PASSWORD 'test'")
     conn.commit()
     try:
         yield conn
