@@ -1,6 +1,24 @@
+import pytest
 import requests
 
 from folios import metabase
+
+
+def test_get_api_key_rejects_the_env_example_placeholder(monkeypatch):
+    monkeypatch.setenv("METABASE_API_KEY", "change-me")
+    with pytest.raises(metabase.MetabaseConfigError):
+        metabase.get_api_key()
+
+
+def test_get_api_key_rejects_missing_key(monkeypatch):
+    monkeypatch.delenv("METABASE_API_KEY", raising=False)
+    with pytest.raises(metabase.MetabaseConfigError):
+        metabase.get_api_key()
+
+
+def test_get_api_key_accepts_a_real_value(monkeypatch):
+    monkeypatch.setenv("METABASE_API_KEY", "mb_real_key_123")
+    assert metabase.get_api_key() == "mb_real_key_123"
 
 
 class FakeResponse:

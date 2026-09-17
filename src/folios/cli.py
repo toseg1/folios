@@ -8,6 +8,7 @@ from rich.prompt import Confirm, Prompt
 
 from folios import __version__, db, seed
 from folios import add as add_module
+from folios import doctor as doctor_module
 from folios import exposure as exposure_module
 from folios import fx as fx_module
 from folios import loader as loader_module
@@ -513,6 +514,20 @@ def dashboard_init() -> None:
     typer.echo(f"Dashboard created: {url}")
     for name, card_id in result["card_ids"].items():
         typer.echo(f"  card {card_id}: {name}")
+
+
+@app.command()
+def doctor() -> None:
+    """Checks Docker, ports 5432/3000, Google credentials, Yahoo and
+    frankfurter reachability, config/ parsing, and pending migrations —
+    one message per problem, each naming the fix. Exits non-zero if
+    anything failed."""
+    checks = doctor_module.run_doctor()
+    for check in checks:
+        typer.echo(str(check))
+
+    if not all(c.ok for c in checks):
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
