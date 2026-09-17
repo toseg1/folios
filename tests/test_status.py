@@ -5,7 +5,11 @@ import pytest
 
 from folios.exposure import store_exposure
 from folios.seed import seed
-from folios.status import check_stale_manual_valuations, check_unmapped_exposure_codes
+from folios.status import (
+    check_missing_tickers,
+    check_stale_manual_valuations,
+    check_unmapped_exposure_codes,
+)
 from folios.valuations import load_valuations
 from tests.test_seed import EXAMPLE_CONFIG
 
@@ -74,3 +78,25 @@ def test_check_unmapped_exposure_codes(seeded_conn):
 
 def test_no_unmapped_exposure_codes_when_none_stored(seeded_conn):
     assert check_unmapped_exposure_codes(seeded_conn) == []
+
+
+def test_check_missing_tickers_flags_yfinance_instrument_without_symbol(seeded_conn):
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE core.instruments SET yf_symbol = NULL, price_source = 'yfinance' "
+            "WHERE instrument_id = 'DEMO-SHARE'"
+        )
+    seeded_conn.commit()
+
+    findings = [str(f) for f in check_missing_tickers(seeded_conn)]
+    assert any("DEMO-SHARE" in t and "fix-ticker" in t for t in findings)
+
+
+def test_check_missing_tickers_ignores_manual_price_source(seeded_conn):
+    # DEMO-FUND-BOND is price_source=manual with no yf_symbol by design.
+    findings = [str(f) for f in check_missing_tickers(seeded_conn)]
+    assert not any("DEMO-FUND-BOND" in t for t in findings)
+
+
+def test_check_missing_tickers_clean_when_all_yfinance_instruments_have_a_symbol(seeded_conn):
+    assert check_missing_tickers(seeded_conn) == []

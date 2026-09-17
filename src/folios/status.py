@@ -70,5 +70,28 @@ def check_unmapped_exposure_codes(conn: psycopg.Connection) -> list[Finding]:
     ]
 
 
+def check_missing_tickers(conn: psycopg.Connection) -> list[Finding]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT instrument_id, name FROM core.instruments
+            WHERE price_source = 'yfinance' AND (yf_symbol IS NULL OR yf_symbol = '')
+            ORDER BY instrument_id
+            """
+        )
+        rows = cur.fetchall()
+    return [
+        Finding(
+            f"{instrument_id} ({name}): no yf_symbol set — "
+            f"run `folios fix-ticker {instrument_id} <ticker>`"
+        )
+        for instrument_id, name in rows
+    ]
+
+
 def run_status_checks(conn: psycopg.Connection) -> list[Finding]:
-    return check_stale_manual_valuations(conn) + check_unmapped_exposure_codes(conn)
+    return (
+        check_stale_manual_valuations(conn)
+        + check_unmapped_exposure_codes(conn)
+        + check_missing_tickers(conn)
+    )

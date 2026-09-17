@@ -11,6 +11,7 @@ from folios import add as add_module
 from folios import exposure as exposure_module
 from folios import fx as fx_module
 from folios import loader as loader_module
+from folios import new_instrument as new_instrument_module
 from folios import prices as prices_module
 from folios import status as status_module
 from folios import validate as validate_module
@@ -441,10 +442,31 @@ def pull() -> None:
         typer.echo(f"  {result.transactions_written} transaction row(s) written")
     if result.valuations_written:
         typer.echo(f"  {result.valuations_written} valuation row(s) written")
-    if result.deferred:
-        typer.echo(f"  {len(result.deferred)} deferred (new-instrument, not yet handled)")
+    if result.new_instruments:
+        typer.echo(f"  {len(result.new_instruments)} new instrument(s) created: "
+                   f"{', '.join(result.new_instruments)} — run `folios form-sync`")
     for error in result.errors:
         typer.echo(f"  error: {error}", err=True)
+
+
+@app.command("fix-ticker")
+def fix_ticker(
+    instrument_id: str = typer.Argument(..., help="instrument_id in config/instruments.csv"),
+    ticker: str = typer.Argument(..., help="Yahoo ticker to validate and assign"),
+) -> None:
+    """Supplies a yf_symbol for an instrument `folios status` flagged as
+    missing one — validated the same way as a new-instrument submission
+    (5 days of real Yahoo history required)."""
+    conn = db.connect()
+    try:
+        result = new_instrument_module.fix_ticker(conn, instrument_id, ticker)
+    finally:
+        conn.close()
+
+    if result.error:
+        typer.echo(result.error, err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"{result.instrument_id}: yf_symbol set to {ticker}")
 
 
 if __name__ == "__main__":
