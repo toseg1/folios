@@ -134,6 +134,37 @@ def load_valuations(conn: psycopg.Connection, path: Path) -> ValuationResult:
     return ValuationResult(rows_read=len(rows), rows_stored=len(to_store))
 
 
+def _valuation_files(data_dir: Path) -> list[Path]:
+    """Every valuation-shaped CSV in data_dir — valuations.csv plus every
+    gform_valuations_<date>.csv `folios pull` has written. See
+    loader._transaction_files for the counterpart on the other side of
+    this same filename split."""
+    return sorted(p for p in data_dir.glob("*.csv") if "valuations" in p.name)
+
+
+def load_all(
+    conn: psycopg.Connection, data_dir: Path | None = None
+) -> tuple[ValuationResult, list[str]]:
+    """Loads every valuation file in data_dir, aggregating the result.
+    One bad file's errors don't block the others — used by `folios
+    sync`. Returns (aggregate result, per-file error messages)."""
+    data_dir = data_dir if data_dir is not None else DEFAULT_VALUATIONS_PATH.parent
+    total = ValuationResult()
+    errors: list[str] = []
+    if not data_dir.exists():
+        return total, errors
+
+    for path in _valuation_files(data_dir):
+        try:
+            result = load_valuations(conn, path)
+        except ValuationError as exc:
+            errors.extend(str(e) for e in exc.errors)
+            continue
+        total.rows_read += result.rows_read
+        total.rows_stored += result.rows_stored
+    return total, errors
+
+
 def manual_priced_instruments(conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Every price_source='manual' instrument, with its most recent
     manual valuation date (NULL if it has never had one)."""
