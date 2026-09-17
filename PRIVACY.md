@@ -17,3 +17,14 @@ the default `drive` scope that would grant full account access.
 
 The refresh token from this flow is stored locally, in `.credentials/`
 (gitignored — never committed, never leaves your machine).
+
+## Apps Script (`apps_script/onFormSubmit.gs`)
+
+This one script runs inside Google's own infrastructure, not on your
+machine — it's installed by hand into the Form itself (see `SETUP.md`)
+and authorised separately from folios' own OAuth token above, under
+your Google account's own Apps Script permissions. It only ever calls
+`MailApp.sendEmail`, and only to your own address (whatever account you
+installed it under) — never to anyone else, never any other Google
+service. Its one job: emailing you immediately when a `BUY`/`SELL`
+entry's `quantity × price` doesn't match the `gross` you typed.
