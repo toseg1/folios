@@ -30,6 +30,9 @@ dependencies = [
     # requirements.txt and the `setup` target in Makefile, which do this.
     # A bare `pip install -e .` without that follow-up step leaves
     # `folios.exposure` (and anything importing it) unable to import.
+    "google-auth>=2.30,<3.0",
+    "google-auth-oauthlib>=1.2,<2.0",
+    "google-api-python-client>=2.130,<3.0",
 ]
 
 [project.scripts]
