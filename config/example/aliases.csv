@@ -1,5 +1,7 @@
 alias,source,instrument_id
 DEMO,manual,DEMO-SHARE
+WORLD,manual,DEMO-ETF-WORLD
 BTC,manual,DEMO-CRYPTO-BTC
 FUNDBOND,manual,DEMO-FUND-BOND
 BOND2030,manual,DEMO-BOND-2030
+ETNGOLD,manual,DEMO-ETN-GOLD

@@ -50,5 +50,25 @@ def check_stale_manual_valuations(
     return findings
 
 
+def check_unmapped_exposure_codes(conn: psycopg.Connection) -> list[Finding]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT instrument_id, dimension, label
+            FROM core.etp_exposure
+            WHERE code = 'UNMAPPED' OR code LIKE 'UNMAPPED:%'
+            ORDER BY instrument_id, dimension, label
+            """
+        )
+        rows = cur.fetchall()
+    return [
+        Finding(
+            f"{instrument_id}: {dimension} label {label!r} is unmapped "
+            f"(add it to config/exposure_mapping.csv)"
+        )
+        for instrument_id, dimension, label in rows
+    ]
+
+
 def run_status_checks(conn: psycopg.Connection) -> list[Finding]:
-    return check_stale_manual_valuations(conn)
+    return check_stale_manual_valuations(conn) + check_unmapped_exposure_codes(conn)

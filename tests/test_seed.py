@@ -16,14 +16,14 @@ def test_seed_example_config(migrated_conn):
     result = seed(migrated_conn, EXAMPLE_CONFIG)
 
     assert result.counts["accounts"] == 2
-    assert result.counts["instruments"] == 5
+    assert result.counts["instruments"] == 6
     assert result.warnings == []
 
     with migrated_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.accounts")
         assert cur.fetchone()[0] == 2
         cur.execute("SELECT count(*) FROM core.instruments")
-        assert cur.fetchone()[0] == 5
+        assert cur.fetchone()[0] == 6
         cur.execute("SELECT count(*) FROM core.dimensions")
         assert cur.fetchone()[0] > 0
 
@@ -47,10 +47,10 @@ def test_seed_is_idempotent_and_updates_in_place(migrated_conn):
     finally:
         instruments_csv.write_text(original)
 
-    assert result.counts["instruments"] == 5
+    assert result.counts["instruments"] == 6
     with migrated_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.instruments")
-        assert cur.fetchone()[0] == 5
+        assert cur.fetchone()[0] == 6
         cur.execute(
             "SELECT name FROM core.instruments WHERE instrument_id = 'DEMO-SHARE'"
         )

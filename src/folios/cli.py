@@ -8,6 +8,7 @@ from rich.prompt import Confirm, Prompt
 
 from folios import __version__, db, seed
 from folios import add as add_module
+from folios import exposure as exposure_module
 from folios import fx as fx_module
 from folios import loader as loader_module
 from folios import prices as prices_module
@@ -340,6 +341,33 @@ def status() -> None:
         return
     for finding in findings:
         typer.echo(str(finding))
+
+
+@app.command()
+def exposure(
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Fetch fresh ETP look-through data from justETF"
+    ),
+) -> None:
+    """Aggregate country/sector look-through for held ETPs, via justETF.
+    Never fails the whole run over one broken fetch — that's a warning,
+    the last snapshot stays in place."""
+    if not refresh:
+        typer.echo("nothing to do without --refresh")
+        return
+
+    conn = db.connect()
+    try:
+        result = exposure_module.refresh_exposure(conn)
+    finally:
+        conn.close()
+
+    for instrument_id in result.refreshed:
+        typer.echo(f"refreshed {instrument_id}")
+    for reason in result.skipped:
+        typer.echo(f"skipped {reason}")
+    for warning in result.warnings:
+        typer.echo(f"warning: {warning}")
 
 
 if __name__ == "__main__":

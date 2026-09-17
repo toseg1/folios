@@ -1,9 +1,11 @@
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 
+from folios.exposure import store_exposure
 from folios.seed import seed
-from folios.status import check_stale_manual_valuations
+from folios.status import check_stale_manual_valuations, check_unmapped_exposure_codes
 from folios.valuations import load_valuations
 from tests.test_seed import EXAMPLE_CONFIG
 
@@ -53,3 +55,22 @@ def test_respects_custom_max_age(seeded_conn, tmp_path):
         str(f) for f in check_stale_manual_valuations(seeded_conn, max_age_days=5)
     ]
     assert any("DEMO-FUND-BOND" in t for t in findings)
+
+
+def test_check_unmapped_exposure_codes(seeded_conn):
+    store_exposure(
+        seeded_conn,
+        "DEMO-ETF-WORLD",
+        date(2026, 6, 1),
+        {"sector": [("Weird New Sector", Decimal("0.10"))]},
+        mapping={},  # nothing mapped -> UNMAPPED
+    )
+    findings = [str(f) for f in check_unmapped_exposure_codes(seeded_conn)]
+    assert len(findings) == 1
+    assert "DEMO-ETF-WORLD" in findings[0]
+    assert "Weird New Sector" in findings[0]
+    assert "exposure_mapping.csv" in findings[0]
+
+
+def test_no_unmapped_exposure_codes_when_none_stored(seeded_conn):
+    assert check_unmapped_exposure_codes(seeded_conn) == []

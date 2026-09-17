@@ -21,6 +21,15 @@ dependencies = [
     "tenacity>=8.2,<10.0",
     "python-dotenv>=1.0,<2.0",
     "yfinance>=1.5,<2.0",
+    "curl_cffi>=0.15,<1.0",
+    # stockdex is a real runtime dependency (folios.exposure imports it)
+    # but is deliberately NOT listed here: its metadata pins
+    # curl_cffi==0.12.0 exactly, which conflicts with yfinance's >=0.15
+    # (verified working fine against 0.16.3 in practice — the pin is
+    # just stale). It must be installed separately with --no-deps; see
+    # requirements.txt and the `setup` target in Makefile, which do this.
+    # A bare `pip install -e .` without that follow-up step leaves
+    # `folios.exposure` (and anything importing it) unable to import.
 ]
 
 [project.scripts]

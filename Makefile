@@ -10,6 +10,10 @@ METABASE_COMPOSE = docker compose -p folios-metabase --env-file .env -f metabase
 
 setup:
 	pip install -r requirements.txt
+	# stockdex must be installed with --no-deps: its own metadata pins
+	# curl_cffi==0.12.0, which conflicts with yfinance's >=0.15 — see the
+	# comment above stockdex's transitive deps in requirements.txt.
+	pip install --no-deps stockdex==1.2.7
 
 check:
 	ruff check .

@@ -16,9 +16,17 @@ instrument_type,ETF,ETF,ETF,20
 instrument_type,OPCVM,OPCVM,Mutual fund,30
 instrument_type,BOND,Obligation,Bond,40
 instrument_type,TOKEN,Jeton,Token,50
+instrument_type,ETN,ETN,ETN,60
 region,EUROPE,Europe,Europe,10
 region,GLOBAL,Monde,Global,20
 region,FRANCE,France,France,30
 sector,DIVERSIFIED,Diversifie,Diversified,10
 sector,TECHNOLOGY,Technologie,Technology,20
+sector,FINANCE,Finance,Finance,30
+sector,INDUSTRIALS,Industrie,Industrials,40
+sector,HEALTHCARE,Sante,Healthcare,50
+country,US,Etats-Unis,United States,10
+country,JP,Japon,Japan,20
+country,GB,Royaume-Uni,United Kingdom,30
+country,CA,Canada,Canada,40
 protection_type,MARKET_EXPOSED,Expose au marche,Market exposed,10
