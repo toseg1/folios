@@ -30,6 +30,7 @@ FORM_ITEMS = [
     {"title": "Date", "questionItem": {"question": {"questionId": "q_date"}}},
     {"title": "Account", "questionItem": {"question": {"questionId": "q_account"}}},
     {"title": "Type", "questionItem": {"question": {"questionId": "q_type"}}},
+    {"title": "Trade", "pageBreakItem": {}},
     {"title": "Symbol", "questionItem": {"question": {"questionId": "q_symbol"}}},
     {"title": "Quantity", "questionItem": {"question": {"questionId": "q_quantity"}}},
     {"title": "Price", "questionItem": {"question": {"questionId": "q_price"}}},
@@ -38,17 +39,30 @@ FORM_ITEMS = [
     {"title": "Tax", "questionItem": {"question": {"questionId": "q_tax"}}},
     {"title": "Currency", "questionItem": {"question": {"questionId": "q_currency"}}},
     {"title": "Note", "questionItem": {"question": {"questionId": "q_note"}}},
+    {"title": "New instrument", "pageBreakItem": {}},
     {"title": "Name", "questionItem": {"question": {"questionId": "q_name"}}},
     {"title": "Yahoo ticker", "questionItem": {"question": {"questionId": "q_ticker"}}},
     {"title": "ISIN", "questionItem": {"question": {"questionId": "q_isin"}}},
     {"title": "Asset class", "questionItem": {"question": {"questionId": "q_asset_class"}}},
+    # Deliberately a second "Currency" question, distinct from Trade's
+    # own — mirrors the real form, where New instrument has its own
+    # Currency field too. See _question_section_and_title/_response_fields.
+    {"title": "Currency", "questionItem": {"question": {"questionId": "q_ni_currency"}}},
     {"title": "Region", "questionItem": {"question": {"questionId": "q_region"}}},
     {"title": "Sector", "questionItem": {"question": {"questionId": "q_sector"}}},
 ]
 
 _TITLE_TO_QUESTION_ID = {
-    item["title"]: item["questionItem"]["question"]["questionId"] for item in FORM_ITEMS
+    item["title"]: item["questionItem"]["question"]["questionId"]
+    for item in FORM_ITEMS
+    if "questionItem" in item
 }
+# The comprehension above keeps the last "Currency" (New instrument's) —
+# pin the bare "Currency" kwarg back to Trade's, since that's what every
+# existing test means by it, and expose New instrument's under its own
+# name for the one test that needs both at once.
+_TITLE_TO_QUESTION_ID["Currency"] = "q_currency"
+_TITLE_TO_QUESTION_ID["New instrument Currency"] = "q_ni_currency"
 
 
 def _answer(value: str) -> dict[str, Any]:
@@ -75,14 +89,15 @@ class _Exec:
 
 
 class FakePullFormsService:
-    def __init__(self, responses: list[dict[str, Any]]):
+    def __init__(self, responses: list[dict[str, Any]], items: list[dict[str, Any]] | None = None):
         self._responses = responses
+        self._items = items if items is not None else FORM_ITEMS
 
     def forms(self) -> "FakePullFormsService":
         return self
 
     def get(self, formId: str) -> _Exec:  # noqa: N803
-        return _Exec({"formId": formId, "items": FORM_ITEMS})
+        return _Exec({"formId": formId, "items": self._items})
 
     def responses(self) -> "FakePullFormsService":
         return self
@@ -218,10 +233,13 @@ def test_pull_creates_new_instrument_from_not_listed_symbol(
             "Account": "DEMO-BROKER-CTO",
             "Type": "BUY",
             "Symbol": google_forms.NOT_LISTED,
+            "Quantity": "10",
+            "Price": "100",
+            "Currency": "EUR",
             "Name": "Demo Newco",
             "Yahoo ticker": "NEWCO.PA",
             "Asset class": "EQUITY",
-            "Currency": "EUR",
+            "New instrument Currency": "EUR",
             "Region": "EUROPE",
         },
     )
@@ -230,13 +248,21 @@ def test_pull_creates_new_instrument_from_not_listed_symbol(
 
     result = _pull(seeded_conn, forms_service, sheets_service)
 
+    # The instrument is created AND the trade the respondent was
+    # mid-way through entering completes in the same pull, now that
+    # Symbol resolves to the freshly created alias — the response
+    # carries both pages' answers at once, so there's nothing to lose.
     assert result.new_instruments == ["NEWCO-PA"]
-    assert result.transactions_written == 0
+    assert result.transactions_written == 1
+    assert result.errors == []
     assert fake_validator.checked == ["NEWCO.PA"]
 
     row = sheets_service.appended_rows[0]
     assert row[-2] == "ok"
     assert "NEWCO-PA" in row[-1]
+
+    txn_path = isolated_state / "manual" / "gform_2026-01-10.csv"
+    assert "DEMO-BROKER-CTO,BUY,Demo Newco - NEWCO-PA,10,100" in txn_path.read_text()
 
     instruments_csv = (writable_config_dir / "instruments.csv").read_text()
     assert "NEWCO-PA" in instruments_csv
@@ -246,12 +272,121 @@ def test_pull_creates_new_instrument_from_not_listed_symbol(
     # Reconciled into the database immediately, not just written to config.
     with seeded_conn.cursor() as cur:
         cur.execute(
-            "SELECT instrument_id FROM core.instrument_aliases WHERE alias = 'NEWCO-PA'"
+            "SELECT instrument_id FROM core.instrument_aliases "
+            "WHERE alias = 'Demo Newco - NEWCO-PA'"
         )
         assert cur.fetchone() == ("NEWCO-PA",)
 
+
+def test_pull_keeps_trade_and_new_instrument_currencies_separate(
+    seeded_conn, isolated_state, writable_config_dir, monkeypatch
+):
+    # Trade and New instrument each have their own "Currency" question —
+    # buying a USD-denominated instrument from a EUR account must not let
+    # one page's answer clobber the other's.
+    _save_form_state(isolated_state)
+    fake_validator = FakeTickerValidator(valid=True)
+    monkeypatch.setattr(new_instrument, "YFinanceTickerValidator", lambda: fake_validator)
+
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.fx_rates (rate_date, base_ccy, quote_ccy, rate) "
+            "VALUES ('2026-01-10', 'EUR', 'USD', 1.08)"
+        )
+    seeded_conn.commit()
+
+    response = _response(
+        "r-new-mixed-currency",
+        **{
+            "Date": "2026-01-10",
+            "Account": "DEMO-BROKER-CTO",
+            "Type": "BUY",
+            "Symbol": google_forms.NOT_LISTED,
+            "Quantity": "10",
+            "Price": "100",
+            "Currency": "USD",
+            "Name": "Demo Newco",
+            "Yahoo ticker": "NEWCO.PA",
+            "Asset class": "EQUITY",
+            "New instrument Currency": "EUR",
+        },
+    )
+    forms_service = FakePullFormsService([response])
+    sheets_service = FakeSheetsService()
+
+    result = _pull(seeded_conn, forms_service, sheets_service)
+
+    assert result.new_instruments == ["NEWCO-PA"]
+    assert result.transactions_written == 1
+    assert result.errors == []
+
+    # The instrument keeps its own currency (EUR)...
+    instruments_csv = (writable_config_dir / "instruments.csv").read_text()
+    newco_line = next(line for line in instruments_csv.splitlines() if "NEWCO-PA" in line)
+    assert ",EUR," in newco_line
+
+    # ...while the trade keeps its own (USD) — neither clobbered the other.
     txn_path = isolated_state / "manual" / "gform_2026-01-10.csv"
-    assert not txn_path.exists()
+    content = txn_path.read_text()
+    assert "DEMO-BROKER-CTO,BUY,Demo Newco - NEWCO-PA,10,100" in content
+    assert ",USD," in content
+
+
+def test_pull_routes_continuation_page_answers_into_new_instrument_fields(
+    seeded_conn, isolated_state, writable_config_dir, monkeypatch
+):
+    # Regression test for the New-Instrument-family section-title fix: a
+    # response can carry answers from the landing "New instrument" page
+    # AND whichever continuation page (here, Bond) Asset class routed it
+    # to — all of those must reach create_from_form_fields, not just the
+    # landing page's own (a literal `section == "New instrument"` check
+    # would silently drop everything from the continuation page).
+    _save_form_state(isolated_state)
+    fake_validator = FakeTickerValidator(valid=True)
+    monkeypatch.setattr(new_instrument, "YFinanceTickerValidator", lambda: fake_validator)
+
+    items = [
+        *FORM_ITEMS,
+        {"title": "New instrument — Bond details", "pageBreakItem": {}},
+        {"title": "Coupon rate", "questionItem": {"question": {"questionId": "q_coupon_rate"}}},
+        {"title": "Is callable", "questionItem": {"question": {"questionId": "q_is_callable"}}},
+    ]
+    response = {
+        "responseId": "r-bond",
+        "createTime": "2026-01-10T12:00:00Z",
+        "lastSubmittedTime": "2026-01-10T12:00:00Z",
+        "answers": {
+            "q_date": _answer("2026-01-10"),
+            "q_account": _answer("DEMO-BROKER-CTO"),
+            "q_type": _answer("BUY"),
+            "q_symbol": _answer(google_forms.NOT_LISTED),
+            "q_quantity": _answer("10"),
+            "q_price": _answer("100"),
+            "q_currency": _answer("EUR"),
+            "q_name": _answer("Demo Bond Co"),
+            "q_ticker": _answer("BONDCO.PA"),
+            "q_asset_class": _answer("BOND"),
+            "q_ni_currency": _answer("EUR"),
+            "q_coupon_rate": _answer("0.04"),
+            "q_is_callable": _answer("false"),
+        },
+    }
+    forms_service = FakePullFormsService([response], items=items)
+    sheets_service = FakeSheetsService()
+
+    result = _pull(seeded_conn, forms_service, sheets_service)
+
+    assert result.new_instruments == ["BONDCO-PA"]
+    assert result.errors == []
+
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT coupon_rate, is_callable FROM core.instrument_bond "
+            "WHERE instrument_id = 'BONDCO-PA'"
+        )
+        row = cur.fetchone()
+    assert row is not None, "Bond continuation-page answers never reached create_from_form_fields"
+    assert row[1] is False
 
 
 def test_pull_marks_error_when_ticker_has_no_history(
@@ -272,6 +407,7 @@ def test_pull_marks_error_when_ticker_has_no_history(
             "Yahoo ticker": "NOTREAL",
             "Asset class": "EQUITY",
             "Currency": "EUR",
+            "New instrument Currency": "EUR",
         },
     )
     forms_service = FakePullFormsService([response])
