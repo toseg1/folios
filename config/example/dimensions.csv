@@ -1,6 +1,7 @@
 dimension,code,label_fr,label_en,sort_order
 account_type,securities,Compte titres,Securities account,10
 account_type,cash,Compte especes,Cash account,20
+account_type,crypto,Compte crypto,Crypto account,30
 fiscal_envelope,CTO,Compte-titres ordinaire,Ordinary securities account,10
 fiscal_envelope,PEA,Plan d'epargne en actions,Equity savings plan,20
 fiscal_envelope,CURRENT,Compte courant,Current account,30
@@ -11,6 +12,7 @@ asset_class,ETP,Produit cote,Exchange-traded product,20
 asset_class,FUND,Fonds,Fund,30
 asset_class,BOND,Obligation,Bond,40
 asset_class,CRYPTO,Cryptoactif,Crypto asset,50
+asset_class,RWA,Actifs réels tokenisés,Real-World Assets,60
 instrument_type,SHARE,Action,Share,10
 instrument_type,ETF,ETF,ETF,20
 instrument_type,OPCVM,OPCVM,Mutual fund,30
