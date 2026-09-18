@@ -1,4 +1,5 @@
 import shutil
+from decimal import Decimal
 
 import pytest
 
@@ -48,7 +49,7 @@ def test_create_from_form_fields_happy_path(seeded_conn, writable_config_dir):
 
     assert result.error is None
     assert result.instrument_id == "NEWCO-PA"
-    assert result.alias == "NEWCO-PA"
+    assert result.alias == "Demo Newco - NEWCO-PA"
     assert validator.checked == ["NEWCO.PA"]
 
     with seeded_conn.cursor() as cur:
@@ -61,7 +62,8 @@ def test_create_from_form_fields_happy_path(seeded_conn, writable_config_dir):
 
     with seeded_conn.cursor() as cur:
         cur.execute(
-            "SELECT instrument_id FROM core.instrument_aliases WHERE alias = 'NEWCO-PA'"
+            "SELECT instrument_id FROM core.instrument_aliases "
+            "WHERE alias = 'Demo Newco - NEWCO-PA'"
         )
         assert cur.fetchone() == ("NEWCO-PA",)
 
@@ -109,6 +111,93 @@ def test_create_from_form_fields_avoids_instrument_id_collision(seeded_conn, wri
 
     assert first.instrument_id == "NEWCO-PA"
     assert second.instrument_id == "NEWCO-PA-2"
+
+
+def test_create_from_form_fields_writes_no_subtype_row_for_equity(
+    seeded_conn, writable_config_dir
+):
+    validator = FakeTickerValidator(valid=True)
+    new_instrument.create_from_form_fields(
+        seeded_conn, NEW_INSTRUMENT_FIELDS, validator=validator, config_dir=writable_config_dir
+    )
+
+    assert not (writable_config_dir / "instruments_fund.csv").read_text().count("NEWCO-PA")
+    assert not (writable_config_dir / "instruments_bond.csv").read_text().count("NEWCO-PA")
+    assert not (writable_config_dir / "instruments_crypto.csv").read_text().count("NEWCO-PA")
+
+    with seeded_conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM core.instrument_fund WHERE instrument_id = 'NEWCO-PA'")
+        assert cur.fetchone() is None
+
+
+def test_create_from_form_fields_writes_fund_subtype_row(seeded_conn, writable_config_dir):
+    fields = {
+        **NEW_INSTRUMENT_FIELDS,
+        "Asset class": "ETP",
+        "Legal structure": "UCITS_FUND",
+        "SRI": "4",
+    }
+    validator = FakeTickerValidator(valid=True)
+
+    result = new_instrument.create_from_form_fields(
+        seeded_conn, fields, validator=validator, config_dir=writable_config_dir
+    )
+
+    assert result.error is None
+    fund_csv = (writable_config_dir / "instruments_fund.csv").read_text()
+    assert "NEWCO-PA,UCITS_FUND" in fund_csv
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT legal_structure, sri FROM core.instrument_fund "
+            "WHERE instrument_id = 'NEWCO-PA'"
+        )
+        assert cur.fetchone() == ("UCITS_FUND", 4)
+
+
+def test_create_from_form_fields_writes_bond_subtype_row(seeded_conn, writable_config_dir):
+    fields = {
+        **NEW_INSTRUMENT_FIELDS,
+        "Asset class": "BOND",
+        "Coupon rate": "0.035",
+        "Is callable": "false",
+    }
+    validator = FakeTickerValidator(valid=True)
+
+    result = new_instrument.create_from_form_fields(
+        seeded_conn, fields, validator=validator, config_dir=writable_config_dir
+    )
+
+    assert result.error is None
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT coupon_rate, is_callable FROM core.instrument_bond "
+            "WHERE instrument_id = 'NEWCO-PA'"
+        )
+        row = cur.fetchone()
+    assert row[0] == Decimal("0.035000")
+    assert row[1] is False
+
+
+def test_create_from_form_fields_writes_crypto_subtype_row(seeded_conn, writable_config_dir):
+    fields = {
+        **NEW_INSTRUMENT_FIELDS,
+        "Asset class": "CRYPTO",
+        "Chain": "Ethereum",
+        "Is stablecoin": "false",
+    }
+    validator = FakeTickerValidator(valid=True)
+
+    result = new_instrument.create_from_form_fields(
+        seeded_conn, fields, validator=validator, config_dir=writable_config_dir
+    )
+
+    assert result.error is None
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT chain, is_stablecoin FROM core.instrument_crypto "
+            "WHERE instrument_id = 'NEWCO-PA'"
+        )
+        assert cur.fetchone() == ("Ethereum", False)
 
 
 def test_fix_ticker_updates_an_existing_manual_instrument(seeded_conn, writable_config_dir):

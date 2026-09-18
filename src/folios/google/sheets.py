@@ -13,6 +13,7 @@ from googleapiclient.discovery import build
 from folios import new_instrument, validate
 from folios.google.auth import get_credentials
 from folios.google.forms import (
+    NEW_INSTRUMENT_SECTIONS,
     NOT_LISTED,
     RESPONSE_SHEET_HEADERS,
     SECTIONS,
@@ -56,6 +57,12 @@ _FIELD_TO_COLUMN: dict[str, str] = {
 # like the `folios add` wizard already defaults it. See forms.py SECTIONS.
 _SECTIONS_NEEDING_CURRENCY_FROM_INSTRUMENT = {"transfer", "split", "staking"}
 
+# All four New-Instrument-family pages (the landing page plus the
+# Fund/Bond/Crypto continuation pages) — a response can carry answers
+# from the landing page AND whichever continuation page it was routed
+# to, and all of those belong in new_instrument_fields, not fields.
+_NEW_INSTRUMENT_SECTION_TITLES = {title for _, title, _, _ in NEW_INSTRUMENT_SECTIONS}
+
 
 def build_sheets_service(creds: Any = None) -> Any:
     return build("sheets", "v4", credentials=creds or get_credentials())
@@ -88,13 +95,23 @@ def _section_for_type(txn_type: str) -> str | None:
     return None
 
 
-def _question_titles(form: dict[str, Any]) -> dict[str, str]:
-    titles: dict[str, str] = {}
+def _question_section_and_title(form: dict[str, Any]) -> dict[str, tuple[str | None, str]]:
+    """Maps questionId -> (section title, field title). Section-aware
+    because a "+ Not listed" jump means a single response can carry
+    answers from two different pages at once — the original section
+    plus New instrument — that happen to share a field label (both have
+    a "Currency" question). A flat title-only map would let whichever
+    one iterates last silently clobber the other's answer."""
+    meta: dict[str, tuple[str | None, str]] = {}
+    current_section: str | None = None
     for item in form.get("items", []):
+        if "pageBreakItem" in item:
+            current_section = item.get("title")
+            continue
         question = item.get("questionItem", {}).get("question")
-        if question and "questionId" in question:
-            titles[question["questionId"]] = item["title"]
-    return titles
+        if question and "questionId" in question and "title" in item:
+            meta[question["questionId"]] = (current_section, item["title"])
+    return meta
 
 
 def _answer_text(answer: dict[str, Any]) -> str:
@@ -106,13 +123,26 @@ def _answer_text(answer: dict[str, Any]) -> str:
     return ", ".join(values)
 
 
-def _response_fields(response: dict[str, Any], titles: dict[str, str]) -> dict[str, str]:
+def _response_fields(
+    response: dict[str, Any], question_meta: dict[str, tuple[str | None, str]]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Splits a response's answers by which page they came from (see
+    _question_section_and_title). Returns (fields, new_instrument_fields):
+    fields holds every answer except New instrument's own — New
+    instrument's are kept separate so its "Currency" (the instrument's
+    own) can never be confused with the originating section's."""
     fields: dict[str, str] = {}
+    new_instrument_fields: dict[str, str] = {}
     for question_id, answer in response.get("answers", {}).items():
-        title = titles.get(question_id)
-        if title is not None:
-            fields[title] = _answer_text(answer)
-    return fields
+        meta = question_meta.get(question_id)
+        if meta is None:
+            continue
+        section, title = meta
+        target = (
+            new_instrument_fields if section in _NEW_INSTRUMENT_SECTION_TITLES else fields
+        )
+        target[title] = _answer_text(answer)
+    return fields, new_instrument_fields
 
 
 def _list_all_responses(forms_service: Any, form_id: str) -> list[dict[str, Any]]:
@@ -229,12 +259,13 @@ def pull_responses(
     and these files are a transport, the loader is the only writer of
     record. See docs/folios-build-plan.md step 15.
 
-    A "not listed" Symbol answer is the one exception: it never reaches
-    core.transactions on this submission at all (the Form's branching
-    means Quantity/Price etc. were never asked), so there is nothing for
-    the loader to write. Instead this runs the new-instrument path
-    (build-plan step 16) immediately: validate the ticker, add it to
-    config/, reconcile it into the database via seed.seed()."""
+    A "not listed" Symbol answer registers the new instrument first
+    (build-plan step 16: validate the ticker, add it to config/,
+    reconcile into the database via seed.seed()), then — since a Form
+    response carries every answer from the whole visit, not just the
+    New instrument page's — falls through and completes the very
+    transaction/valuation the respondent was mid-way through entering,
+    now that the symbol resolves to the freshly created alias."""
     state = load_form_state()
     if state is None:
         raise FormNotInitializedError
@@ -243,7 +274,7 @@ def pull_responses(
     processed_ids = set(pull_state.get("processed_response_ids", []))
 
     form = forms_service.forms().get(formId=state["form_id"]).execute()
-    titles = _question_titles(form)
+    question_meta = _question_section_and_title(form)
 
     responses = _list_all_responses(forms_service, state["form_id"])
     new_responses = [r for r in responses if r["responseId"] not in processed_ids]
@@ -252,7 +283,12 @@ def pull_responses(
     if not new_responses:
         return result
 
-    fields_by_response = {r["responseId"]: _response_fields(r, titles) for r in new_responses}
+    fields_by_response: dict[str, dict[str, str]] = {}
+    new_instrument_fields_by_response: dict[str, dict[str, str]] = {}
+    for r in new_responses:
+        fields, new_instrument_fields = _response_fields(r, question_meta)
+        fields_by_response[r["responseId"]] = fields
+        new_instrument_fields_by_response[r["responseId"]] = new_instrument_fields
     aliases = validate.alias_to_instrument(conn)
     instrument_currencies = validate.instrument_currencies(conn)
 
@@ -263,24 +299,29 @@ def pull_responses(
     txn_batch: list[tuple[str, dict[str, str]]] = []
     valuation_batch: list[tuple[str, dict[str, str]]] = []
     status_by_response: dict[str, tuple[str, str]] = {}
+    instrument_messages: dict[str, str] = {}
 
     for response_id, fields in fields_by_response.items():
         txn_type = fields.get("Type", "")
         symbol = fields.get("Symbol", "")
 
         if symbol == NOT_LISTED:
-            outcome = new_instrument.create_from_form_fields(conn, fields)
+            new_instrument_fields = new_instrument_fields_by_response[response_id]
+            outcome = new_instrument.create_from_form_fields(conn, new_instrument_fields)
             if outcome.error:
                 status_by_response[response_id] = ("error", outcome.error)
                 result.errors.append(f"{response_id}: {outcome.error}")
-            else:
-                status_by_response[response_id] = (
-                    "ok",
-                    f"created {outcome.instrument_id} (alias {outcome.alias}) — "
-                    f"run `folios form-sync` to use it",
-                )
-                result.new_instruments.append(outcome.instrument_id)
-            continue
+                continue
+
+            result.new_instruments.append(outcome.instrument_id)
+            instrument_messages[response_id] = (
+                f"created {outcome.instrument_id} (alias {outcome.alias})"
+            )
+            aliases = validate.alias_to_instrument(conn)
+            instrument_currencies = validate.instrument_currencies(conn)
+            symbol = outcome.alias
+            fields = {**fields, "Symbol": symbol}
+            fields_by_response[response_id] = fields
 
         if txn_type == VALUATION_TYPE:
             valuation_batch.append(
@@ -318,16 +359,20 @@ def pull_responses(
 
         for (response_id, _row), line in zip(txn_batch, txn_lines, strict=True):
             row_errors = errors_by_line.get(line)
+            prefix = instrument_messages.get(response_id)
             if row_errors:
                 text = "; ".join(row_errors)
+                if prefix:
+                    text = f"{prefix}; {text}"
                 status_by_response[response_id] = ("error", text)
                 result.errors.append(f"{response_id}: {text}")
             else:
-                status_by_response[response_id] = ("ok", "")
+                status_by_response[response_id] = ("ok", prefix or "")
                 result.transactions_written += 1
 
     for response_id, _row in valuation_batch:
-        status_by_response[response_id] = ("ok", "")
+        prefix = instrument_messages.get(response_id)
+        status_by_response[response_id] = ("ok", prefix or "")
         result.valuations_written += 1
 
     sheet_rows = [

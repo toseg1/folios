@@ -94,6 +94,38 @@ def _item_titles(service: FakeFormsService) -> list[str]:
     return [item["title"] for item in service.items]
 
 
+def _item_in_section(
+    service: FakeFormsService, section_title: str, field_label: str
+) -> dict[str, Any]:
+    current_section = None
+    for item in service.items:
+        if "pageBreakItem" in item:
+            current_section = item.get("title")
+            continue
+        if current_section == section_title and item.get("title") == field_label:
+            return item
+    raise LookupError(f"no {field_label!r} item found in section {section_title!r}")
+
+
+def _options(item: dict[str, Any]) -> list[dict[str, Any]]:
+    return item["questionItem"]["question"]["choiceQuestion"]["options"]
+
+
+def _assert_no_mixed_navigation(service: FakeFormsService) -> None:
+    """Confirmed live: batchUpdate's updateItem 400s with "Invalid
+    Options, Either all or no options should be go to enabled" on a
+    ChoiceQuestion where some options carry goToAction/goToSectionId and
+    others don't (createItem tolerates it, updateItem doesn't — this is
+    exactly how the Valuation Symbol bug surfaced). FakeFormsService
+    doesn't enforce this, so assert it explicitly."""
+    for item in service.items:
+        choice = item.get("questionItem", {}).get("question", {}).get("choiceQuestion")
+        if not choice:
+            continue
+        has_nav = {"goToAction" in o or "goToSectionId" in o for o in choice["options"]}
+        assert len(has_nav) <= 1, f"{item.get('title')!r} mixes navigating and plain options"
+
+
 def test_dimension_codes_currency_comes_from_config(seeded_conn, monkeypatch):
     monkeypatch.setattr(google_forms.fx, "currencies_from_config", lambda: {"USD", "EUR", "GBP"})
     codes = google_forms.dimension_codes(seeded_conn, "currency")
@@ -111,6 +143,19 @@ def test_symbol_choices_includes_aliases_and_not_listed_sentinel(seeded_conn):
     assert "DEMO" in choices
     assert "WORLD" in choices
     assert choices[-1] == google_forms.NOT_LISTED
+
+
+def test_symbol_choices_excluding_not_listed_falls_back_when_no_aliases_exist(seeded_conn):
+    # Confirmed live: an empty ChoiceQuestion.options 400s on batchUpdate.
+    # A fresh instance with no instruments configured yet — the user's
+    # actual state when this regressed — must not produce zero options
+    # for Income's Symbol dropdown (allow_new_instrument=False).
+    with seeded_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.instrument_aliases")
+    seeded_conn.commit()
+
+    choices = google_forms.symbol_choices(seeded_conn, include_not_listed=False)
+    assert choices == [google_forms.NO_ALIASES_PLACEHOLDER]
 
 
 def test_create_form_builds_expected_item_order_and_routing(seeded_conn):
@@ -236,3 +281,152 @@ def test_form_sync_preserves_not_listed_routing(seeded_conn, monkeypatch):
     )
     new_instrument_item = next(item for item in service.items if item["title"] == "New instrument")
     assert not_listed_option["goToSectionId"] == new_instrument_item["itemId"]
+
+
+def test_trade_symbol_is_terminal_and_currency_is_not(seeded_conn):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+
+    symbol_options = _options(_item_in_section(service, "Trade", "Symbol"))
+    for option in symbol_options:
+        if option["value"] == google_forms.NOT_LISTED:
+            continue
+        assert option["goToAction"] == "SUBMIT_FORM"
+
+    currency_options = _options(_item_in_section(service, "Trade", "Currency"))
+    assert all("goToAction" not in option for option in currency_options)
+
+
+def test_income_symbol_excludes_not_listed_and_currency_is_terminal(seeded_conn):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+
+    symbol_options = _options(_item_in_section(service, "Income", "Symbol"))
+    assert google_forms.NOT_LISTED not in {o["value"] for o in symbol_options}
+
+    currency_options = _options(_item_in_section(service, "Income", "Currency"))
+    assert currency_options
+    assert all(o["goToAction"] == "SUBMIT_FORM" for o in currency_options)
+
+
+def test_form_sync_does_not_reintroduce_not_listed_on_income_symbol(seeded_conn, monkeypatch):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+
+    symbol_options = _options(_item_in_section(service, "Income", "Symbol"))
+    assert google_forms.NOT_LISTED not in {o["value"] for o in symbol_options}
+
+
+def test_form_sync_preserves_terminal_submit_on_currency(seeded_conn, monkeypatch):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+
+    for section_title in ("Income", "Cash", "Cost"):
+        currency_options = _options(_item_in_section(service, section_title, "Currency"))
+        assert currency_options
+        assert all(o["goToAction"] == "SUBMIT_FORM" for o in currency_options), section_title
+
+    trade_currency_options = _options(_item_in_section(service, "Trade", "Currency"))
+    assert all("goToAction" not in o for o in trade_currency_options)
+
+    # New instrument's own Currency is no longer terminal — Asset class is.
+    new_instrument_currency_options = _options(
+        _item_in_section(service, "New instrument", "Currency")
+    )
+    assert all("goToAction" not in o for o in new_instrument_currency_options)
+
+    trade_symbol_options = _options(_item_in_section(service, "Trade", "Symbol"))
+    for option in trade_symbol_options:
+        if option["value"] == google_forms.NOT_LISTED:
+            continue
+        assert option["goToAction"] == "SUBMIT_FORM"
+
+
+def test_create_form_never_mixes_navigating_and_plain_options_on_one_question(seeded_conn):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    _assert_no_mixed_navigation(service)
+
+
+def test_form_sync_never_mixes_navigating_and_plain_options_on_one_question(
+    seeded_conn, monkeypatch
+):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+    _assert_no_mixed_navigation(service)
+
+
+def test_asset_class_routes_to_the_right_subtype_page_or_submits_directly(seeded_conn):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+
+    def page_break_id(title: str) -> str:
+        return next(item["itemId"] for item in service.items if item.get("title") == title)
+
+    asset_class_options = {
+        o["value"]: o
+        for o in _options(_item_in_section(service, "New instrument", "Asset class"))
+    }
+
+    fund_page_id = page_break_id("New instrument — Fund/ETP details")
+    bond_page_id = page_break_id("New instrument — Bond details")
+    crypto_page_id = page_break_id("New instrument — Crypto details")
+
+    assert asset_class_options["ETP"]["goToSectionId"] == fund_page_id
+    assert asset_class_options["FUND"]["goToSectionId"] == fund_page_id
+    assert asset_class_options["BOND"]["goToSectionId"] == bond_page_id
+    assert asset_class_options["CRYPTO"]["goToSectionId"] == crypto_page_id
+
+    # EQUITY has no subtype table — it submits straight from the landing page.
+    assert asset_class_options["EQUITY"]["goToAction"] == "SUBMIT_FORM"
+    assert "goToSectionId" not in asset_class_options["EQUITY"]
+
+
+def test_new_instrument_landing_page_has_only_asset_class_as_navigator(seeded_conn):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+
+    for label in (
+        "Currency", "Region", "Sector", "Instrument type", "Protection type", "PEA eligible",
+    ):
+        options = _options(_item_in_section(service, "New instrument", label))
+        assert all(
+            "goToAction" not in o and "goToSectionId" not in o for o in options
+        ), label
+
+    asset_class_options = _options(_item_in_section(service, "New instrument", "Asset class"))
+    assert any("goToAction" in o or "goToSectionId" in o for o in asset_class_options)
+
+
+def test_fund_bond_crypto_pages_each_have_exactly_one_terminal_field(seeded_conn):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+
+    cases = [
+        ("New instrument — Fund/ETP details", "Legal structure",
+         ["UCITS", "Distribution policy", "Replication method"]),
+        ("New instrument — Bond details", "Is callable",
+         ["Coupon frequency", "Issuer type", "Seniority"]),
+        ("New instrument — Crypto details", "Is stablecoin", ["Consensus"]),
+    ]
+    for section_title, terminal_label, plain_labels in cases:
+        terminal_options = _options(_item_in_section(service, section_title, terminal_label))
+        assert terminal_options
+        assert all(o.get("goToAction") == "SUBMIT_FORM" for o in terminal_options)
+        for label in plain_labels:
+            plain_options = _options(_item_in_section(service, section_title, label))
+            assert all(
+                "goToAction" not in o and "goToSectionId" not in o for o in plain_options
+            ), (section_title, label)
