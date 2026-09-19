@@ -1,4 +1,4 @@
-instrument_id,legal_structure,is_ucits,rhp_years,distribution_policy,ongoing_charges,sri,replication_method,swap_counterparty,uses_sec_lending,custodian,sfdr_article,benchmark_index,justetf_id,subscription_price,withdrawal_price,management_company,property_sector,occupancy_rate,distribution_rate,investment_focus,fund_size,strategy_risk,sustainability,currency_risk,volatility_1y_eur,inception_date,distribution_frequency
-DEMO-ETF-WORLD,UCITS_FUND,true,5,ACCUMULATING,0.0020,4,PHYSICAL_FULL,,false,Demo Depositary Bank,8,MSCI World,IE00000000ET,,,,,,,Global developed equities,5000000000,Medium,Article 8,Low,12.500000,2015-03-01,ANNUAL
-DEMO-FUND-BOND,UCITS_FUND,true,3,DISTRIBUTING,0.0045,2,PHYSICAL_FULL,,false,Demo Depositary Bank,6,,,,,,,,,,,,,,,,
-DEMO-ETN-GOLD,UNSECURED_NOTE,false,,,0.0035,5,,,false,,,,,,,,,,,,,,,,,,
+instrument_id,legal_structure,is_ucits,rhp_years,distribution_policy,ongoing_charges,sri,replication_method,swap_counterparty,uses_sec_lending,custodian,sfdr_article,benchmark_index,justetf_id,subscription_price,withdrawal_price,management_company,property_sector,occupancy_rate,distribution_rate,investment_focus,fund_size,investment_approach,sustainability,currency_risk,fund_currency,volatility_1y_eur,inception_date,distribution_frequency
+DEMO-ETF-WORLD,UCITS_FUND,true,5,ACCUMULATING,0.0020,4,PHYSICAL_SAMPLED,,false,Demo Depositary Bank,8,MSCI World,IE00000000ET,,,,,,,"Equity, World",127272000000,Long-only,No,Currency unhedged,USD,0.107300,2009-09-25,
+DEMO-FUND-BOND,UCITS_FUND,true,3,DISTRIBUTING,0.0045,2,PHYSICAL_FULL,,false,Demo Depositary Bank,6,,,,,,,,,,,,,,,,,
+DEMO-ETN-GOLD,UNSECURED_NOTE,false,,,0.0035,5,,,false,,,,,,,,,,,,,,,,,,,

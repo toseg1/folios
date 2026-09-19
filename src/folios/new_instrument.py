@@ -32,8 +32,9 @@ FUND_CSV_COLUMNS = (
     "swap_counterparty", "uses_sec_lending", "custodian", "sfdr_article",
     "benchmark_index", "justetf_id", "subscription_price", "withdrawal_price",
     "management_company", "property_sector", "occupancy_rate", "distribution_rate",
-    "investment_focus", "fund_size", "strategy_risk", "sustainability",
-    "currency_risk", "volatility_1y_eur", "inception_date", "distribution_frequency",
+    "investment_focus", "fund_size", "investment_approach", "sustainability",
+    "currency_risk", "fund_currency", "volatility_1y_eur", "inception_date",
+    "distribution_frequency",
 )
 BOND_CSV_COLUMNS = (
     "instrument_id", "coupon_rate", "coupon_frequency", "maturity_date",
@@ -63,14 +64,9 @@ class YFinanceTickerValidator:
 class YFinanceInfoProvider:
     """Best-effort auto-population of sector/industry/country/description
     for EQUITY, from yfinance's .info dict — a stable, well-documented
-    field set. NOT used for ETP/FUND: the equivalent justETF fields
-    (investment_focus, fund_size, strategy_risk, sustainability, etc.)
-    come from stockdex's justetf_general_info/justetf_basics, whose exact
-    return shape is unconfirmed (see docs/folios-data-model-review.md
-    §3.2/§3.4) — those stay manual until a live smoke test confirms the
-    field names, per this project's own convention of confirming API
-    shapes live before building against them (see CLAUDE.md testing
-    conventions)."""
+    field set. NOT used for ETP/FUND: the equivalent justETF fields come
+    from exposure.StockdexExposureProvider.fetch_basics() instead (its own
+    accessor, confirmed live and wired in the ETP branch below)."""
 
     def fetch_info(self, ticker: str) -> dict[str, Any]:
         try:
@@ -152,6 +148,7 @@ def create_from_form_fields(
     validator: Any = None,
     config_dir: Path | None = None,
     info_provider: Any = None,
+    basics_provider: Any = None,
 ) -> NewInstrumentResult:
     """Build-plan step 16, the phone-submission path: validate the
     ticker, write instruments.csv + aliases.csv (config is the seed —
@@ -190,6 +187,14 @@ def create_from_form_fields(
     industry = ""
     description = ""
     domicile_country = fields.get("Domicile country") or ""
+    issuer = fields.get("Issuer") or ""
+    # Populated for ETP below, then merged into fund_row further down —
+    # every instrument_fund column justETF's "basics" tab can supply
+    # (investment_focus, fund_size, ongoing_charges, replication_method,
+    # investment_approach, sustainability, fund_currency, currency_risk,
+    # volatility_1y_eur, inception_date, benchmark_index,
+    # distribution_policy, distribution_frequency).
+    fund_auto: dict[str, Any] = {}
     if asset_class == "EQUITY":
         info_provider = info_provider or YFinanceInfoProvider()
         mapping = exposure.load_exposure_mapping(config_dir / "exposure_mapping.csv")
@@ -206,6 +211,24 @@ def create_from_form_fields(
             or domicile_country
         )
         description = info.get("longBusinessSummary") or ""
+    elif asset_class == "ETP":
+        isin = fields.get("ISIN") or ""
+        if not isin:
+            enrichment_warnings.append(
+                "no ISIN set — justETF fields not fetched, fill in manually or "
+                "add an ISIN and run `folios exposure --refresh` later"
+            )
+        else:
+            basics_provider = basics_provider or exposure.StockdexExposureProvider()
+            mapping = exposure.load_exposure_mapping(config_dir / "exposure_mapping.csv")
+            try:
+                basics_raw = basics_provider.fetch_basics(isin)
+            except Exception as exc:  # noqa: BLE001 — scraped page, any failure mode
+                enrichment_warnings.append(f"justETF basics fetch failed: {exc}")
+            else:
+                fund_auto = exposure.parse_basics(basics_raw, mapping, enrichment_warnings)
+                domicile_country = fund_auto.get("domicile_country") or domicile_country
+                issuer = fund_auto.get("issuer") or issuer
 
     instrument_row = {
         "instrument_id": instrument_id,
@@ -219,7 +242,7 @@ def create_from_form_fields(
         "sector": sector,
         "industry": industry,
         "description": description,
-        "issuer": fields.get("Issuer") or "",
+        "issuer": issuer,
         "domicile_country": domicile_country,
         "protection_type": fields.get("Protection type") or "",
         "is_pea_eligible": fields.get("PEA eligible") or "",
@@ -233,20 +256,27 @@ def create_from_form_fields(
 
     subtype_table = seed.SUBTYPE_TABLE_BY_ASSET_CLASS.get(instrument_row["asset_class"])
     if subtype_table == "instrument_fund":
+
+        def _auto(key: str) -> str:
+            value = fund_auto.get(key)
+            return "" if value is None else str(value)
+
         fund_row = {
             "instrument_id": instrument_id,
             "legal_structure": fields.get("Legal structure") or "",
             "is_ucits": fields.get("UCITS") or "",
             "rhp_years": fields.get("RHP (years)") or "",
-            "distribution_policy": fields.get("Distribution policy") or "",
-            "ongoing_charges": fields.get("Ongoing charges") or "",
+            "distribution_policy": (
+                fields.get("Distribution policy") or _auto("distribution_policy")
+            ),
+            "ongoing_charges": fields.get("Ongoing charges") or _auto("ongoing_charges"),
             "sri": fields.get("SRI") or "",
-            "replication_method": fields.get("Replication method") or "",
+            "replication_method": fields.get("Replication method") or _auto("replication_method"),
             "swap_counterparty": fields.get("Swap counterparty") or "",
             "uses_sec_lending": fields.get("Uses securities lending") or "",
             "custodian": fields.get("Custodian") or "",
             "sfdr_article": fields.get("SFDR article") or "",
-            "benchmark_index": fields.get("Benchmark index") or "",
+            "benchmark_index": fields.get("Benchmark index") or _auto("benchmark_index"),
             "justetf_id": fields.get("justETF id") or "",
             "subscription_price": fields.get("Subscription price (SCPI)") or "",
             "withdrawal_price": fields.get("Withdrawal price (SCPI)") or "",
@@ -254,19 +284,21 @@ def create_from_form_fields(
             "property_sector": fields.get("Property sector (SCPI)") or "",
             "occupancy_rate": fields.get("Occupancy rate (SCPI)") or "",
             "distribution_rate": fields.get("Distribution rate (SCPI)") or "",
-            # justETF-sourced (investment focus, fund size, strategy risk,
-            # sustainability, currency risk, 1y volatility, inception date,
-            # distribution frequency) — not auto-fetched yet, see
-            # YFinanceInfoProvider's docstring above for why. Left available
-            # for manual override in the meantime.
-            "investment_focus": fields.get("Investment focus") or "",
-            "fund_size": fields.get("Fund size") or "",
-            "strategy_risk": fields.get("Strategy risk") or "",
-            "sustainability": fields.get("Sustainability") or "",
-            "currency_risk": fields.get("Currency risk") or "",
-            "volatility_1y_eur": fields.get("Volatility 1y (EUR)") or "",
-            "inception_date": fields.get("Inception date") or "",
-            "distribution_frequency": fields.get("Distribution frequency") or "",
+            # justETF-sourced, ETP only — auto-fetched via
+            # exposure.StockdexExposureProvider.fetch_basics() above; manual
+            # entry (if ever present in `fields`) always wins.
+            "investment_focus": fields.get("Investment focus") or _auto("investment_focus"),
+            "fund_size": fields.get("Fund size") or _auto("fund_size"),
+            "investment_approach": (
+                fields.get("Investment approach") or _auto("investment_approach")
+            ),
+            "sustainability": fields.get("Sustainability") or _auto("sustainability"),
+            "currency_risk": fields.get("Currency risk") or _auto("currency_risk"),
+            "fund_currency": fields.get("Fund currency") or _auto("fund_currency"),
+            "volatility_1y_eur": fields.get("Volatility 1y (EUR)") or _auto("volatility_1y_eur"),
+            "inception_date": fields.get("Inception date") or _auto("inception_date"),
+            "distribution_frequency": fields.get("Distribution frequency")
+            or _auto("distribution_frequency"),
         }
         _append_row(config_dir / "instruments_fund.csv", FUND_CSV_COLUMNS, fund_row)
     elif subtype_table == "instrument_bond":

@@ -181,21 +181,17 @@ NEW_INSTRUMENT_FUND_SECTION = (
         ),
         Field("UCITS", "dropdown", required=False, choices=("true", "false")),
         Field("RHP (years)", "number", required=False),
-        Field(
-            "Distribution policy", "dropdown", required=False,
-            choices=("ACCUMULATING", "DISTRIBUTING"),
-        ),
-        Field("Ongoing charges", "number", required=False),
+        # Distribution policy, Ongoing charges, Replication method and
+        # Benchmark index are no longer asked here — for ETP with an ISIN,
+        # they're auto-fetched from justETF's "basics" tab at creation
+        # time (exposure.StockdexExposureProvider.fetch_basics /
+        # parse_basics) and kept fresh by `folios exposure --refresh`.
+        # They stay manual for a non-listed FUND (not on justETF).
         Field("SRI", "number", required=False),
-        Field(
-            "Replication method", "dropdown", required=False,
-            choices=("PHYSICAL_FULL", "PHYSICAL_SAMPLED", "SYNTHETIC"),
-        ),
         Field("Swap counterparty", "text", required=False),
         Field("Uses securities lending", "dropdown", required=False, choices=("true", "false")),
         Field("Custodian", "text", required=False),
         Field("SFDR article", "dropdown", required=False, choices=("6", "8", "9")),
-        Field("Benchmark index", "text", required=False),
         Field("justETF id", "text", required=False),
         Field("Subscription price (SCPI)", "number", required=False),
         Field("Withdrawal price (SCPI)", "number", required=False),

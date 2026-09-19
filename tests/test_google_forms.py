@@ -416,7 +416,7 @@ def test_fund_bond_crypto_pages_each_have_exactly_one_terminal_field(seeded_conn
 
     cases = [
         ("New instrument — Fund/ETP details", "Legal structure",
-         ["UCITS", "Distribution policy", "Replication method"]),
+         ["UCITS", "Uses securities lending", "SFDR article"]),
         ("New instrument — Bond details", "Is callable",
          ["Coupon frequency", "Issuer type", "Seniority"]),
         ("New instrument — Crypto details", "Is stablecoin", ["Consensus"]),

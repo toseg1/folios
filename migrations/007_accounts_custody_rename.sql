@@ -48,18 +48,31 @@ ALTER TABLE core.instrument_fund ADD CONSTRAINT note_has_no_custodian CHECK (
 
 -- New instrument_fund fields sourced from justETF (stockdex), ETP only in
 -- practice — a non-listed FUND (OPCVM/SICAV/SCPI) isn't on justETF, so
--- these stay NULL there. fund_currency/fund_domicile/fund_provider are
--- deliberately NOT new columns: core.instruments.currency/domicile_country
--- /issuer already carry that meaning for an ETP/FUND row (issuer =
--- management company/provider, e.g. iShares — distinct from
--- instrument_fund's own management_company, which stays SCPI-specific,
--- see FIELDS.md).
+-- these stay NULL there. fund_domicile/fund_provider are deliberately NOT
+-- new columns: core.instruments.domicile_country/issuer already carry
+-- that meaning for an ETP/FUND row (issuer = management company/provider,
+-- e.g. iShares — distinct from instrument_fund's own management_company,
+-- which stays SCPI-specific, see FIELDS.md). fund_currency IS a new
+-- column here, not reused from core.instruments.currency: confirmed live
+-- against a real ISIN that they're genuinely different things — justETF's
+-- "Fund currency" is the fund's own NAV base currency (e.g. USD for
+-- EUNL), while instruments.currency is the currency you actually trade it
+-- in on a given exchange (e.g. EUR on Xetra) and is what every price/FX
+-- lookup keys on. Writing the former into the latter would silently
+-- corrupt FX math.
 ALTER TABLE core.instrument_fund
     ADD COLUMN investment_focus       text,
     ADD COLUMN fund_size              numeric(20,4),
-    ADD COLUMN strategy_risk          text,
+    ADD COLUMN investment_approach    text,   -- justETF's actual field name
+                                               -- (e.g. "Long-only") — not a
+                                               -- risk figure, despite the
+                                               -- "strategy risk" guess this
+                                               -- column briefly had before
+                                               -- justetf_basics was confirmed
+                                               -- live
     ADD COLUMN sustainability         text,
     ADD COLUMN currency_risk          text,
+    ADD COLUMN fund_currency          char(3),
     ADD COLUMN volatility_1y_eur      numeric(9,6),
     ADD COLUMN inception_date         date,
     ADD COLUMN distribution_frequency text;  -- ANNUAL | SEMI_ANNUAL | QUARTERLY |

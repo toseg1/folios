@@ -103,39 +103,59 @@ keyed on the same `instrument_id`.
 One row per instrument with `asset_class` in `ETP`/`FUND`, keyed on
 `instrument_id`.
 
+**Auto** below means: for an ETP with an ISIN, fetched from justETF's
+"basics" tab (`exposure.StockdexExposureProvider.fetch_basics` +
+`exposure.parse_basics`, confirmed live against a real ISIN) at
+instrument-creation time, and kept current by `folios exposure
+--refresh`. A non-listed FUND (OPCVM/SICAV/SCPI) isn't on justETF, so
+these stay manual there. Manual entry (if ever present) always wins over
+a fetched value; a fetch that fails or returns nothing never overwrites
+an existing good value (`COALESCE`d against the current row).
+
+justETF's own **"Legal structure"** field (e.g. `"ETF"`) is deliberately
+never consumed — it's the wrapper-type concept this schema already calls
+`instrument_type` (manually set at creation), not the deeper structural
+question `legal_structure` below answers. Same word, different concept;
+conflating them would silently overwrite a structurally load-bearing
+manual field.
+
 | Column | Meaning | Values |
 | --- | --- | --- |
-| `legal_structure` | **The field that decides everything downstream** — what you actually own if the issuer fails. Manual — structurally load-bearing, so not auto-derived even where justETF could suggest a value. | `UCITS_FUND` (ETF/OPCVM/SICAV — ring-fenced assets, a custodian, real holdings, look-through applies) : `NON_UCITS_FUND` (a fund, outside UCITS protection) : `COLLATERALISED_NOTE` (most ETCs — debt backed by collateral, not a fund) : `UNSECURED_NOTE` (ETNs — unsecured debt of the issuer, no ring-fenced assets, no custodian; if the issuer fails you're a creditor, not an owner) : `SCPI` (French property vehicle) |
+| `legal_structure` | **The field that decides everything downstream** — what you actually own if the issuer fails. Manual, structurally load-bearing — never auto-derived, including from justETF's own same-named-but-different "Legal structure" field (see above). | `UCITS_FUND` (ETF/OPCVM/SICAV — ring-fenced assets, a custodian, real holdings, look-through applies) : `NON_UCITS_FUND` (a fund, outside UCITS protection) : `COLLATERALISED_NOTE` (most ETCs — debt backed by collateral, not a fund) : `UNSECURED_NOTE` (ETNs — unsecured debt of the issuer, no ring-fenced assets, no custodian; if the issuer fails you're a creditor, not an owner) : `SCPI` (French property vehicle) |
 | `is_ucits` | Whether it's UCITS-compliant. | `true` / `false` |
 | `rhp_years` | Recommended holding period, from the PRIIPs KID. Manual, no automatable source. | Integer years |
-| `distribution_policy` | Whether income is paid out or reinvested. | `ACCUMULATING`, `DISTRIBUTING` |
-| `ongoing_charges` | Annual cost (TER), **as a decimal fraction** — 0.20% is `0.0020`, not `0.20`. | Decimal fraction |
+| `distribution_policy` | Whether income is paid out or reinvested. **Auto.** | `ACCUMULATING`, `DISTRIBUTING` |
+| `ongoing_charges` | Annual cost (TER), **as a decimal fraction** — 0.20% is `0.0020`, not `0.20`. **Auto.** | Decimal fraction |
 | `sri` | PRIIPs KID risk indicator, stored exactly as published. Ordinal 1–7 — never average this, only distribute it. Manual, no automatable source (KID-only figure). | Integer 1–7 |
-| `replication_method` | How the fund tracks its index. | `PHYSICAL_FULL`, `PHYSICAL_SAMPLED`, `SYNTHETIC` |
+| `replication_method` | How the fund tracks its index. **Auto** — justETF's own free-text label (e.g. `"Physical (Optimized sampling)"`) is mapped onto these codes; an unrecognized label is stored as-is rather than dropped. | `PHYSICAL_FULL`, `PHYSICAL_SAMPLED`, `SYNTHETIC` |
 | `swap_counterparty` | Only for synthetic replication. Manual, no confirmed source. | Free text |
 | `uses_sec_lending` | Whether the fund lends out its holdings. Manual, no confirmed source. | `true` / `false` |
 | `custodian` | **Custody layer 2a**: who holds the *fund's* underlying assets (as opposed to `accounts.custodian`, which is who holds *your units of the fund*). `NULL` required if `legal_structure = UNSECURED_NOTE` — a note has no fund assets, so it can't have a custodian. | Free text |
 | `sfdr_article` | EU sustainability disclosure classification. Manual — justETF shows it on-site but doesn't expose it via the library used here. | `6`, `8`, `9` |
-| `benchmark_index` | The index it tracks — used for overlap detection without full look-through. | Free text |
+| `benchmark_index` | The index it tracks — used for overlap detection without full look-through. **Auto**, from justETF's `Index`. | Free text |
 | `justetf_id` | justETF's own identifier, if pulling exposure data from there. Usually identical to `isin`. | Free text |
 | `subscription_price` / `withdrawal_price` | SCPI only — the two prices SCPIs quote instead of a market price; value the position at `withdrawal_price`. Manual, no automatable source. | Decimal |
 | `management_company` | SCPI only. | Free text |
 | `property_sector` | SCPI only. | Free text |
 | `occupancy_rate` | SCPI only, decimal fraction. | Decimal fraction |
 | `distribution_rate` | SCPI only, decimal fraction. | Decimal fraction |
-| `investment_focus` | justETF's own free-text description of the fund's focus. | Free text |
-| `fund_size` | Assets under management. | Decimal |
-| `strategy_risk` | justETF's strategy-risk label. | Free text |
-| `sustainability` | justETF's own sustainability label — distinct from `sfdr_article`. | Free text |
-| `currency_risk` | justETF's currency-risk label. | Free text |
-| `volatility_1y_eur` | Trailing 1-year volatility, in EUR, as published. | Decimal fraction |
-| `inception_date` | Fund inception/listing date. | ISO date |
-| `distribution_frequency` | How often a distributing fund actually pays out — distinct from `distribution_policy` (whether it pays out at all). | `ANNUAL`, `SEMI_ANNUAL`, `QUARTERLY`, `MONTHLY` |
+| `investment_focus` | justETF's own free-text description of the fund's focus, e.g. `"Equity, World"`. **Auto.** | Free text |
+| `fund_size` | Assets under management. **Auto** — justETF's `"EUR 127,272 m"` is parsed to a plain magnitude; the currency unit is not tracked separately (informational field, nothing computes with it). | Decimal |
+| `investment_approach` | justETF's `Investment approach` label, e.g. `"Long-only"` — not a risk figure, despite this column's working name before `justetf_basics` was confirmed live. **Auto.** | Free text |
+| `sustainability` | justETF's own sustainability label, e.g. `"No"` — distinct from `sfdr_article`. **Auto.** | Free text |
+| `currency_risk` | justETF's currency-risk label, e.g. `"Currency unhedged"`. **Auto.** | Free text |
+| `fund_currency` | The fund's own NAV base currency, from justETF's `Fund currency` — **not** the same as `core.instruments.currency` (the currency you actually trade it in on a given exchange, which drives price/FX lookups). EUNL trades in EUR on Xetra but its fund_currency is USD; never write one into the other. **Auto.** | ISO 4217 code |
+| `volatility_1y_eur` | Trailing 1-year volatility, in EUR, as published (e.g. `"10.73%"` → `0.1073`). **Auto.** | Decimal fraction |
+| `inception_date` | Fund inception/listing date, parsed from justETF's `"25 September 2009"`-style text. **Auto.** | ISO date |
+| `distribution_frequency` | How often a distributing fund actually pays out — distinct from `distribution_policy` (whether it pays out at all). justETF publishes `"-"` when there's nothing to pay out (e.g. an accumulating fund); parsed to blank, not the literal dash. **Auto.** | `ANNUAL`, `SEMI_ANNUAL`, `QUARTERLY`, `MONTHLY` |
 
-`fund_currency`/`fund_domicile`/`fund_provider` from justETF are
-deliberately not separate columns here — they're the same thing as
-`core.instruments.currency`/`domicile_country`/`issuer` for an
-ETP/FUND row.
+`fund_domicile`/`fund_provider` from justETF are deliberately not
+separate columns here — they're the same thing as
+`core.instruments.domicile_country`/`issuer` for an ETP/FUND row
+(`domicile_country` mapped through `config/exposure_mapping.csv` the
+same way EQUITY's does). `fund_currency` above is the one justETF field
+that looked like it should reuse `core.instruments.currency` the same
+way but doesn't — see that row.
 
 ## config/instruments_bond.csv
 

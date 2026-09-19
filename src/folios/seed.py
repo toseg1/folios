@@ -186,8 +186,9 @@ _INSTRUMENT_FUND_COLUMNS = (
     "swap_counterparty", "uses_sec_lending", "custodian", "sfdr_article",
     "benchmark_index", "justetf_id", "subscription_price", "withdrawal_price",
     "management_company", "property_sector", "occupancy_rate", "distribution_rate",
-    "investment_focus", "fund_size", "strategy_risk", "sustainability",
-    "currency_risk", "volatility_1y_eur", "inception_date", "distribution_frequency",
+    "investment_focus", "fund_size", "investment_approach", "sustainability",
+    "currency_risk", "fund_currency", "volatility_1y_eur", "inception_date",
+    "distribution_frequency",
 )
 
 _INSTRUMENT_BOND_COLUMNS = (
@@ -282,8 +283,9 @@ _INSTRUMENT_FUND_SQL = """
         swap_counterparty, uses_sec_lending, custodian, sfdr_article,
         benchmark_index, justetf_id, subscription_price, withdrawal_price,
         management_company, property_sector, occupancy_rate, distribution_rate,
-        investment_focus, fund_size, strategy_risk, sustainability,
-        currency_risk, volatility_1y_eur, inception_date, distribution_frequency
+        investment_focus, fund_size, investment_approach, sustainability,
+        currency_risk, fund_currency, volatility_1y_eur, inception_date,
+        distribution_frequency
     ) VALUES (
         %(instrument_id)s, %(legal_structure)s, %(is_ucits)s, %(rhp_years)s,
         %(distribution_policy)s, %(ongoing_charges)s, %(sri)s,
@@ -291,9 +293,9 @@ _INSTRUMENT_FUND_SQL = """
         %(custodian)s, %(sfdr_article)s, %(benchmark_index)s, %(justetf_id)s,
         %(subscription_price)s, %(withdrawal_price)s, %(management_company)s,
         %(property_sector)s, %(occupancy_rate)s, %(distribution_rate)s,
-        %(investment_focus)s, %(fund_size)s, %(strategy_risk)s, %(sustainability)s,
-        %(currency_risk)s, %(volatility_1y_eur)s, %(inception_date)s,
-        %(distribution_frequency)s
+        %(investment_focus)s, %(fund_size)s, %(investment_approach)s,
+        %(sustainability)s, %(currency_risk)s, %(fund_currency)s,
+        %(volatility_1y_eur)s, %(inception_date)s, %(distribution_frequency)s
     )
     ON CONFLICT (instrument_id) DO UPDATE SET
         legal_structure = EXCLUDED.legal_structure,
@@ -317,9 +319,10 @@ _INSTRUMENT_FUND_SQL = """
         distribution_rate = EXCLUDED.distribution_rate,
         investment_focus = EXCLUDED.investment_focus,
         fund_size = EXCLUDED.fund_size,
-        strategy_risk = EXCLUDED.strategy_risk,
+        investment_approach = EXCLUDED.investment_approach,
         sustainability = EXCLUDED.sustainability,
         currency_risk = EXCLUDED.currency_risk,
+        fund_currency = EXCLUDED.fund_currency,
         volatility_1y_eur = EXCLUDED.volatility_1y_eur,
         inception_date = EXCLUDED.inception_date,
         distribution_frequency = EXCLUDED.distribution_frequency
