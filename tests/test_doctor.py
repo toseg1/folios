@@ -160,11 +160,11 @@ def test_check_config_parses_cleanly(monkeypatch):
 def test_check_config_reports_dimension_errors(tmp_path, monkeypatch):
     shutil.copytree(EXAMPLE_CONFIG, tmp_path, dirs_exist_ok=True)
     (tmp_path / "instruments.csv").write_text(
-        "instrument_id,isin,yf_symbol,name,asset_class,instrument_type,currency,"
-        "region,sector,issuer,domicile_country,protection_type,is_pea_eligible,"
-        "price_source,is_active\n"
-        "BAD-ONE,,BAD,Bad Instrument,NOT_A_REAL_ASSET_CLASS,SHARE,EUR,,,,,,"
-        ",yfinance,true\n"
+        "instrument_id,isin,yf_symbol,ticker,name,asset_class,instrument_type,currency,"
+        "sector,industry,description,issuer,domicile_country,protection_type,"
+        "is_pea_eligible,price_source,is_active\n"
+        "BAD-ONE,,BAD,,Bad Instrument,NOT_A_REAL_ASSET_CLASS,SHARE,EUR,,,,,,,,"
+        "yfinance,true\n"
     )
     monkeypatch.setattr(seed_module, "CONFIG_DIR", tmp_path)
     result = doctor.check_config()

@@ -16,8 +16,8 @@ CONFIG_DIR = REPO_ROOT / "config"
 ACCOUNT_DIMENSION_FIELDS = ("account_type", "fiscal_envelope", "custody_type")
 INSTRUMENT_DIMENSION_FIELDS = (
     "asset_class",
-    "region",
     "sector",
+    "industry",
     "instrument_type",
     "protection_type",
 )
@@ -164,27 +164,30 @@ def _upsert_many(
         cur.execute(sql, {col: row.get(col) for col in columns})
 
 
-_DIMENSION_COLUMNS = ("dimension", "code", "label_fr", "label_en", "sort_order")
+_DIMENSION_COLUMNS = ("dimension", "code", "label_en", "sort_order")
 
 _ACCOUNT_COLUMNS = (
-    "account_id", "broker", "institution", "account_type", "fiscal_envelope",
-    "custody_type", "holding_structure", "key_storage", "contractual_rate",
-    "maturity_date", "deposit_ceiling", "guarantee_scheme", "base_currency",
-    "opened_on", "closed_on", "is_active",
+    "account_id", "broker", "ultimate_parent", "custodian", "account_type",
+    "fiscal_envelope", "custody_type", "holding_structure", "key_storage",
+    "contractual_rate", "maturity_date", "deposit_ceiling", "guarantee_scheme",
+    "base_currency", "opened_on", "closed_on", "is_active",
 )
 
 _INSTRUMENT_COLUMNS = (
-    "instrument_id", "isin", "yf_symbol", "name", "asset_class", "instrument_type",
-    "currency", "region", "sector", "issuer", "domicile_country", "protection_type",
-    "is_pea_eligible", "price_source", "is_active",
+    "instrument_id", "isin", "yf_symbol", "ticker", "name", "asset_class",
+    "instrument_type", "currency", "sector", "industry", "description", "issuer",
+    "domicile_country", "protection_type", "is_pea_eligible", "price_source",
+    "is_active",
 )
 
 _INSTRUMENT_FUND_COLUMNS = (
     "instrument_id", "legal_structure", "is_ucits", "rhp_years",
     "distribution_policy", "ongoing_charges", "sri", "replication_method",
-    "swap_counterparty", "uses_sec_lending", "depositary", "sfdr_article",
+    "swap_counterparty", "uses_sec_lending", "custodian", "sfdr_article",
     "benchmark_index", "justetf_id", "subscription_price", "withdrawal_price",
     "management_company", "property_sector", "occupancy_rate", "distribution_rate",
+    "investment_focus", "fund_size", "strategy_risk", "sustainability",
+    "currency_risk", "volatility_1y_eur", "inception_date", "distribution_frequency",
 )
 
 _INSTRUMENT_BOND_COLUMNS = (
@@ -201,24 +204,22 @@ _ALIAS_COLUMNS = ("alias", "source", "instrument_id")
 
 
 _DIMENSION_SQL = """
-    INSERT INTO core.dimensions (dimension, code, label_fr, label_en, sort_order)
-    VALUES (%(dimension)s, %(code)s, %(label_fr)s, %(label_en)s,
-            COALESCE(%(sort_order)s, 0))
+    INSERT INTO core.dimensions (dimension, code, label_en, sort_order)
+    VALUES (%(dimension)s, %(code)s, %(label_en)s, COALESCE(%(sort_order)s, 0))
     ON CONFLICT (dimension, code) DO UPDATE SET
-        label_fr = EXCLUDED.label_fr,
         label_en = EXCLUDED.label_en,
         sort_order = EXCLUDED.sort_order
 """
 
 _ACCOUNT_SQL = """
     INSERT INTO core.accounts (
-        account_id, broker, institution, account_type, fiscal_envelope,
-        custody_type, holding_structure, key_storage, contractual_rate,
-        maturity_date, deposit_ceiling, guarantee_scheme, base_currency,
-        opened_on, closed_on, is_active
+        account_id, broker, ultimate_parent, custodian, account_type,
+        fiscal_envelope, custody_type, holding_structure, key_storage,
+        contractual_rate, maturity_date, deposit_ceiling, guarantee_scheme,
+        base_currency, opened_on, closed_on, is_active
     ) VALUES (
-        %(account_id)s, %(broker)s, %(institution)s, %(account_type)s,
-        %(fiscal_envelope)s, %(custody_type)s,
+        %(account_id)s, %(broker)s, %(ultimate_parent)s, %(custodian)s,
+        %(account_type)s, %(fiscal_envelope)s, %(custody_type)s,
         COALESCE(%(holding_structure)s, 'UNKNOWN'), %(key_storage)s,
         %(contractual_rate)s, %(maturity_date)s, %(deposit_ceiling)s,
         %(guarantee_scheme)s, %(base_currency)s, %(opened_on)s, %(closed_on)s,
@@ -226,7 +227,8 @@ _ACCOUNT_SQL = """
     )
     ON CONFLICT (account_id) DO UPDATE SET
         broker = EXCLUDED.broker,
-        institution = EXCLUDED.institution,
+        ultimate_parent = EXCLUDED.ultimate_parent,
+        custodian = EXCLUDED.custodian,
         account_type = EXCLUDED.account_type,
         fiscal_envelope = EXCLUDED.fiscal_envelope,
         custody_type = EXCLUDED.custody_type,
@@ -244,24 +246,27 @@ _ACCOUNT_SQL = """
 
 _INSTRUMENT_SQL = """
     INSERT INTO core.instruments (
-        instrument_id, isin, yf_symbol, name, asset_class, instrument_type,
-        currency, region, sector, issuer, domicile_country, protection_type,
-        is_pea_eligible, price_source, is_active
+        instrument_id, isin, yf_symbol, ticker, name, asset_class, instrument_type,
+        currency, sector, industry, description, issuer, domicile_country,
+        protection_type, is_pea_eligible, price_source, is_active
     ) VALUES (
-        %(instrument_id)s, %(isin)s, %(yf_symbol)s, %(name)s, %(asset_class)s,
-        %(instrument_type)s, %(currency)s, %(region)s, %(sector)s, %(issuer)s,
-        %(domicile_country)s, %(protection_type)s, %(is_pea_eligible)s,
+        %(instrument_id)s, %(isin)s, %(yf_symbol)s, %(ticker)s, %(name)s,
+        %(asset_class)s, %(instrument_type)s, %(currency)s, %(sector)s,
+        %(industry)s, %(description)s, %(issuer)s, %(domicile_country)s,
+        %(protection_type)s, %(is_pea_eligible)s,
         COALESCE(%(price_source)s, 'yfinance'), COALESCE(%(is_active)s, true)
     )
     ON CONFLICT (instrument_id) DO UPDATE SET
         isin = EXCLUDED.isin,
         yf_symbol = EXCLUDED.yf_symbol,
+        ticker = EXCLUDED.ticker,
         name = EXCLUDED.name,
         asset_class = EXCLUDED.asset_class,
         instrument_type = EXCLUDED.instrument_type,
         currency = EXCLUDED.currency,
-        region = EXCLUDED.region,
         sector = EXCLUDED.sector,
+        industry = EXCLUDED.industry,
+        description = EXCLUDED.description,
         issuer = EXCLUDED.issuer,
         domicile_country = EXCLUDED.domicile_country,
         protection_type = EXCLUDED.protection_type,
@@ -274,16 +279,21 @@ _INSTRUMENT_FUND_SQL = """
     INSERT INTO core.instrument_fund (
         instrument_id, legal_structure, is_ucits, rhp_years,
         distribution_policy, ongoing_charges, sri, replication_method,
-        swap_counterparty, uses_sec_lending, depositary, sfdr_article,
+        swap_counterparty, uses_sec_lending, custodian, sfdr_article,
         benchmark_index, justetf_id, subscription_price, withdrawal_price,
-        management_company, property_sector, occupancy_rate, distribution_rate
+        management_company, property_sector, occupancy_rate, distribution_rate,
+        investment_focus, fund_size, strategy_risk, sustainability,
+        currency_risk, volatility_1y_eur, inception_date, distribution_frequency
     ) VALUES (
         %(instrument_id)s, %(legal_structure)s, %(is_ucits)s, %(rhp_years)s,
         %(distribution_policy)s, %(ongoing_charges)s, %(sri)s,
         %(replication_method)s, %(swap_counterparty)s, %(uses_sec_lending)s,
-        %(depositary)s, %(sfdr_article)s, %(benchmark_index)s, %(justetf_id)s,
+        %(custodian)s, %(sfdr_article)s, %(benchmark_index)s, %(justetf_id)s,
         %(subscription_price)s, %(withdrawal_price)s, %(management_company)s,
-        %(property_sector)s, %(occupancy_rate)s, %(distribution_rate)s
+        %(property_sector)s, %(occupancy_rate)s, %(distribution_rate)s,
+        %(investment_focus)s, %(fund_size)s, %(strategy_risk)s, %(sustainability)s,
+        %(currency_risk)s, %(volatility_1y_eur)s, %(inception_date)s,
+        %(distribution_frequency)s
     )
     ON CONFLICT (instrument_id) DO UPDATE SET
         legal_structure = EXCLUDED.legal_structure,
@@ -295,7 +305,7 @@ _INSTRUMENT_FUND_SQL = """
         replication_method = EXCLUDED.replication_method,
         swap_counterparty = EXCLUDED.swap_counterparty,
         uses_sec_lending = EXCLUDED.uses_sec_lending,
-        depositary = EXCLUDED.depositary,
+        custodian = EXCLUDED.custodian,
         sfdr_article = EXCLUDED.sfdr_article,
         benchmark_index = EXCLUDED.benchmark_index,
         justetf_id = EXCLUDED.justetf_id,
@@ -304,7 +314,15 @@ _INSTRUMENT_FUND_SQL = """
         management_company = EXCLUDED.management_company,
         property_sector = EXCLUDED.property_sector,
         occupancy_rate = EXCLUDED.occupancy_rate,
-        distribution_rate = EXCLUDED.distribution_rate
+        distribution_rate = EXCLUDED.distribution_rate,
+        investment_focus = EXCLUDED.investment_focus,
+        fund_size = EXCLUDED.fund_size,
+        strategy_risk = EXCLUDED.strategy_risk,
+        sustainability = EXCLUDED.sustainability,
+        currency_risk = EXCLUDED.currency_risk,
+        volatility_1y_eur = EXCLUDED.volatility_1y_eur,
+        inception_date = EXCLUDED.inception_date,
+        distribution_frequency = EXCLUDED.distribution_frequency
 """
 
 _INSTRUMENT_BOND_SQL = """

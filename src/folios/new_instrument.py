@@ -9,16 +9,17 @@ from typing import Any
 import psycopg
 import yfinance as yf
 
-from folios import seed
+from folios import exposure, seed
 
 # Kept in sync by hand with seed.py's private _INSTRUMENT_COLUMNS /
 # _ALIAS_COLUMNS — same pattern as valuations.py's own
 # VALUATION_CSV_COLUMNS, each file owns the shape of the config row it
 # writes rather than reaching into another module's internals.
 INSTRUMENT_CSV_COLUMNS = (
-    "instrument_id", "isin", "yf_symbol", "name", "asset_class", "instrument_type",
-    "currency", "region", "sector", "issuer", "domicile_country", "protection_type",
-    "is_pea_eligible", "price_source", "is_active",
+    "instrument_id", "isin", "yf_symbol", "ticker", "name", "asset_class",
+    "instrument_type", "currency", "sector", "industry", "description", "issuer",
+    "domicile_country", "protection_type", "is_pea_eligible", "price_source",
+    "is_active",
 )
 ALIAS_CSV_COLUMNS = ("alias", "source", "instrument_id")
 
@@ -28,9 +29,11 @@ ALIAS_CSV_COLUMNS = ("alias", "source", "instrument_id")
 FUND_CSV_COLUMNS = (
     "instrument_id", "legal_structure", "is_ucits", "rhp_years",
     "distribution_policy", "ongoing_charges", "sri", "replication_method",
-    "swap_counterparty", "uses_sec_lending", "depositary", "sfdr_article",
+    "swap_counterparty", "uses_sec_lending", "custodian", "sfdr_article",
     "benchmark_index", "justetf_id", "subscription_price", "withdrawal_price",
     "management_company", "property_sector", "occupancy_rate", "distribution_rate",
+    "investment_focus", "fund_size", "strategy_risk", "sustainability",
+    "currency_risk", "volatility_1y_eur", "inception_date", "distribution_frequency",
 )
 BOND_CSV_COLUMNS = (
     "instrument_id", "coupon_rate", "coupon_frequency", "maturity_date",
@@ -55,6 +58,25 @@ class YFinanceTickerValidator:
         except Exception:
             return False
         return not history.empty
+
+
+class YFinanceInfoProvider:
+    """Best-effort auto-population of sector/industry/country/description
+    for EQUITY, from yfinance's .info dict — a stable, well-documented
+    field set. NOT used for ETP/FUND: the equivalent justETF fields
+    (investment_focus, fund_size, strategy_risk, sustainability, etc.)
+    come from stockdex's justetf_general_info/justetf_basics, whose exact
+    return shape is unconfirmed (see docs/folios-data-model-review.md
+    §3.2/§3.4) — those stay manual until a live smoke test confirms the
+    field names, per this project's own convention of confirming API
+    shapes live before building against them (see CLAUDE.md testing
+    conventions)."""
+
+    def fetch_info(self, ticker: str) -> dict[str, Any]:
+        try:
+            return dict(yf.Ticker(ticker).info or {})
+        except Exception:
+            return {}
 
 
 @dataclass
@@ -91,6 +113,29 @@ def _unique_instrument_id(conn: psycopg.Connection, base: str) -> str:
     return f"{base}-{i}"
 
 
+def _map_dimension(
+    mapping: dict[tuple[str, str], str],
+    dimension: str,
+    label: str | None,
+    warnings: list[str],
+) -> str | None:
+    """Maps a fetched raw label onto a config/dimensions.csv code. Unlike
+    etp_exposure's UNMAPPED:<label> fallback (exposure.map_or_unmapped),
+    an instrument's sector/industry/domicile_country ARE dimension-checked
+    at seed time — an unknown code is a hard SeedValidationError, nothing
+    written. So an unmapped label must not be written at all here; it's
+    surfaced as a warning instead (add a row to exposure_mapping.csv),
+    without blocking instrument creation."""
+    if not label:
+        return None
+    code = mapping.get((dimension, label))
+    if code is None:
+        warnings.append(
+            f"{dimension}={label!r} has no config/exposure_mapping.csv row — left blank"
+        )
+    return code
+
+
 def _append_row(path: Path, columns: tuple[str, ...], row: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = path.exists()
@@ -106,6 +151,7 @@ def create_from_form_fields(
     fields: dict[str, str],
     validator: Any = None,
     config_dir: Path | None = None,
+    info_provider: Any = None,
 ) -> NewInstrumentResult:
     """Build-plan step 16, the phone-submission path: validate the
     ticker, write instruments.csv + aliases.csv (config is the seed —
@@ -130,18 +176,51 @@ def create_from_form_fields(
     # de-duplicated above, so this combo is automatically unique too.
     alias = f"{fields['Name'].strip()} - {instrument_id}"
 
+    asset_class = fields["Asset class"].strip()
+
+    # Sector/industry/country/description are no longer typed by hand —
+    # for EQUITY they're fetched from yfinance's .info and mapped through
+    # config/exposure_mapping.csv, same convention as ETP look-through
+    # exposure already uses. Any other asset class (BOND/CRYPTO/a
+    # non-listed FUND) has no automatable source for these, so they stay
+    # unset unless a caller passes them in `fields` directly (e.g. a
+    # future non-phone entry path).
+    enrichment_warnings: list[str] = []
+    sector = fields.get("Sector") or ""
+    industry = ""
+    description = ""
+    domicile_country = fields.get("Domicile country") or ""
+    if asset_class == "EQUITY":
+        info_provider = info_provider or YFinanceInfoProvider()
+        mapping = exposure.load_exposure_mapping(config_dir / "exposure_mapping.csv")
+        info = info_provider.fetch_info(ticker)
+        sector = (
+            _map_dimension(mapping, "sector", info.get("sector"), enrichment_warnings)
+            or sector
+        )
+        industry = (
+            _map_dimension(mapping, "industry", info.get("industry"), enrichment_warnings) or ""
+        )
+        domicile_country = (
+            _map_dimension(mapping, "country", info.get("country"), enrichment_warnings)
+            or domicile_country
+        )
+        description = info.get("longBusinessSummary") or ""
+
     instrument_row = {
         "instrument_id": instrument_id,
         "isin": fields.get("ISIN") or "",
         "yf_symbol": ticker,
+        "ticker": fields.get("Ticker") or "",
         "name": fields["Name"].strip(),
-        "asset_class": fields["Asset class"].strip(),
+        "asset_class": asset_class,
         "instrument_type": fields.get("Instrument type") or "",
         "currency": fields["Currency"].strip(),
-        "region": fields.get("Region") or "",
-        "sector": fields.get("Sector") or "",
+        "sector": sector,
+        "industry": industry,
+        "description": description,
         "issuer": fields.get("Issuer") or "",
-        "domicile_country": fields.get("Domicile country") or "",
+        "domicile_country": domicile_country,
         "protection_type": fields.get("Protection type") or "",
         "is_pea_eligible": fields.get("PEA eligible") or "",
         "price_source": "yfinance",
@@ -165,7 +244,7 @@ def create_from_form_fields(
             "replication_method": fields.get("Replication method") or "",
             "swap_counterparty": fields.get("Swap counterparty") or "",
             "uses_sec_lending": fields.get("Uses securities lending") or "",
-            "depositary": fields.get("Depositary") or "",
+            "custodian": fields.get("Custodian") or "",
             "sfdr_article": fields.get("SFDR article") or "",
             "benchmark_index": fields.get("Benchmark index") or "",
             "justetf_id": fields.get("justETF id") or "",
@@ -175,6 +254,19 @@ def create_from_form_fields(
             "property_sector": fields.get("Property sector (SCPI)") or "",
             "occupancy_rate": fields.get("Occupancy rate (SCPI)") or "",
             "distribution_rate": fields.get("Distribution rate (SCPI)") or "",
+            # justETF-sourced (investment focus, fund size, strategy risk,
+            # sustainability, currency risk, 1y volatility, inception date,
+            # distribution frequency) — not auto-fetched yet, see
+            # YFinanceInfoProvider's docstring above for why. Left available
+            # for manual override in the meantime.
+            "investment_focus": fields.get("Investment focus") or "",
+            "fund_size": fields.get("Fund size") or "",
+            "strategy_risk": fields.get("Strategy risk") or "",
+            "sustainability": fields.get("Sustainability") or "",
+            "currency_risk": fields.get("Currency risk") or "",
+            "volatility_1y_eur": fields.get("Volatility 1y (EUR)") or "",
+            "inception_date": fields.get("Inception date") or "",
+            "distribution_frequency": fields.get("Distribution frequency") or "",
         }
         _append_row(config_dir / "instruments_fund.csv", FUND_CSV_COLUMNS, fund_row)
     elif subtype_table == "instrument_bond":
@@ -208,7 +300,9 @@ def create_from_form_fields(
         return NewInstrumentResult(error="; ".join(exc.errors))
 
     return NewInstrumentResult(
-        instrument_id=instrument_id, alias=alias, warnings=result.warnings
+        instrument_id=instrument_id,
+        alias=alias,
+        warnings=[*enrichment_warnings, *result.warnings],
     )
 
 

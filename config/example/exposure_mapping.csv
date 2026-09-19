@@ -9,3 +9,6 @@ country,Japan,JP
 country,United Kingdom,GB
 country,Canada,CA
 country,Other,UNMAPPED
+industry,Software - Infrastructure,SOFTWARE
+industry,Semiconductors,SEMICONDUCTORS
+industry,Banks - Diversified,BANKS

@@ -234,7 +234,7 @@ def test_form_sync_updates_only_config_driven_dropdowns(seeded_conn, monkeypatch
 
     with seeded_conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO core.accounts (account_id, broker, institution, account_type, "
+            "INSERT INTO core.accounts (account_id, broker, ultimate_parent, account_type, "
             "fiscal_envelope, custody_type, base_currency, opened_on) VALUES "
             "('NEW-ACCOUNT', 'B', 'I', 'securities', 'CTO', 'BROKER', 'EUR', '2026-01-01')"
         )
@@ -399,7 +399,7 @@ def test_new_instrument_landing_page_has_only_asset_class_as_navigator(seeded_co
     google_forms.create_form(seeded_conn, service)
 
     for label in (
-        "Currency", "Region", "Sector", "Instrument type", "Protection type", "PEA eligible",
+        "Currency", "Instrument type", "Protection type", "PEA eligible",
     ):
         options = _options(_item_in_section(service, "New instrument", label))
         assert all(

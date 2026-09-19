@@ -48,8 +48,6 @@ FORM_ITEMS = [
     # own — mirrors the real form, where New instrument has its own
     # Currency field too. See _question_section_and_title/_response_fields.
     {"title": "Currency", "questionItem": {"question": {"questionId": "q_ni_currency"}}},
-    {"title": "Region", "questionItem": {"question": {"questionId": "q_region"}}},
-    {"title": "Sector", "questionItem": {"question": {"questionId": "q_sector"}}},
 ]
 
 _TITLE_TO_QUESTION_ID = {
@@ -129,6 +127,13 @@ class FakeTickerValidator:
     def has_history(self, ticker: str) -> bool:
         self.checked.append(ticker)
         return self.valid
+
+
+class FakeInfoProvider:
+    """Stands in for YFinanceInfoProvider — never hits yfinance for real."""
+
+    def fetch_info(self, ticker: str) -> dict:
+        return {}
 
 
 @pytest.fixture()
@@ -225,6 +230,7 @@ def test_pull_creates_new_instrument_from_not_listed_symbol(
     _save_form_state(isolated_state)
     fake_validator = FakeTickerValidator(valid=True)
     monkeypatch.setattr(new_instrument, "YFinanceTickerValidator", lambda: fake_validator)
+    monkeypatch.setattr(new_instrument, "YFinanceInfoProvider", FakeInfoProvider)
 
     response = _response(
         "r-new",
@@ -240,7 +246,6 @@ def test_pull_creates_new_instrument_from_not_listed_symbol(
             "Yahoo ticker": "NEWCO.PA",
             "Asset class": "EQUITY",
             "New instrument Currency": "EUR",
-            "Region": "EUROPE",
         },
     )
     forms_service = FakePullFormsService([response])
@@ -287,6 +292,7 @@ def test_pull_keeps_trade_and_new_instrument_currencies_separate(
     _save_form_state(isolated_state)
     fake_validator = FakeTickerValidator(valid=True)
     monkeypatch.setattr(new_instrument, "YFinanceTickerValidator", lambda: fake_validator)
+    monkeypatch.setattr(new_instrument, "YFinanceInfoProvider", FakeInfoProvider)
 
     with seeded_conn.cursor() as cur:
         cur.execute(

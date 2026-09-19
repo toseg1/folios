@@ -14,8 +14,8 @@ from folios.models import QUANTITY_SIGN
 from folios.seed import CONFIG_DIR
 
 # justETF's sector/country breakdowns are the two complete aggregate
-# dimensions (each sums to ~1); holdings are top-10-only and out of scope
-# per build-plan step 8c. "region" has no stockdex accessor at all.
+# dimensions (each sums to ~1). "region" has no stockdex accessor at all
+# (and is no longer a folios dimension — see migrations/010).
 DIMENSIONS = ("sector", "country")
 
 
@@ -26,6 +26,15 @@ class StockdexExposureProvider:
             "sector": _parse_weights(ticker.justetf_holdings_sectors),
             "country": _parse_weights(ticker.justetf_holdings_countries),
         }
+
+    def fetch_top_holdings(self, isin: str) -> list[tuple[str, Decimal]]:
+        """Top-10 holdings by company — same accessor family, same
+        DataFrame/percentage-column shape as the sector/country calls
+        above, confirmed by the same stockdex reading that confirmed
+        those (data-model-review §3.2). Ranked list, not a full mapped
+        taxonomy, so it doesn't go through config/exposure_mapping.csv."""
+        ticker = Ticker(isin=isin, security_type="etf")
+        return _parse_weights(ticker.justetf_holdings_companies)
 
 
 def _parse_weights(df: Any) -> list[tuple[str, Decimal]]:
@@ -44,7 +53,12 @@ def _parse_weights(df: Any) -> list[tuple[str, Decimal]]:
 def load_exposure_mapping(path: Path) -> dict[tuple[str, str], str]:
     """{(dimension, source_label): code}. A missing file means everything
     falls back to UNMAPPED, which is a safe (visible, not silently
-    dropped) default — see folios status."""
+    dropped) default — see folios status.
+
+    Originally built for ETP look-through ingestion only; now dual-purpose
+    — new_instrument.py also reuses this same file/shape to map a direct
+    (non-look-through) EQUITY's yfinance sector/industry/country onto
+    config/dimensions.csv codes, via map_or_unmapped() below."""
     if not path.exists():
         return {}
     with path.open(newline="", encoding="utf-8") as f:
@@ -52,6 +66,18 @@ def load_exposure_mapping(path: Path) -> dict[tuple[str, str], str]:
             (row["dimension"], row["source_label"]): row["code"]
             for row in csv.DictReader(f)
         }
+
+
+def map_or_unmapped(
+    mapping: dict[tuple[str, str], str], dimension: str, label: str | None
+) -> str | None:
+    """Same UNMAPPED:<label> convention as store_exposure below, reused
+    here so a direct sector/industry/country value is never silently
+    dropped when config/exposure_mapping.csv hasn't been filled in for it
+    yet. Returns None for a blank/missing label (nothing to map)."""
+    if not label:
+        return None
+    return mapping.get((dimension, label)) or f"UNMAPPED:{label}"
 
 
 def etps_held(conn: psycopg.Connection) -> list[dict[str, Any]]:
@@ -113,7 +139,7 @@ def store_exposure(
             "instrument_id": instrument_id,
             "as_of_date": as_of_date,
             "dimension": dimension,
-            "code": mapping.get((dimension, label)) or f"UNMAPPED:{label}",
+            "code": map_or_unmapped(mapping, dimension, label),
             "label": label,
             "weight": weight,
         }
@@ -123,6 +149,40 @@ def store_exposure(
     with conn.cursor() as cur:
         for row in rows:
             cur.execute(_STORE_SQL, row)
+    conn.commit()
+    return len(rows)
+
+
+_STORE_TOP_HOLDINGS_SQL = """
+    INSERT INTO core.etp_top_holdings
+        (instrument_id, as_of_date, rank, company_name, weight)
+    VALUES
+        (%(instrument_id)s, %(as_of_date)s, %(rank)s, %(company_name)s, %(weight)s)
+    ON CONFLICT (instrument_id, as_of_date, rank) DO UPDATE SET
+        company_name = EXCLUDED.company_name,
+        weight = EXCLUDED.weight
+"""
+
+
+def store_top_holdings(
+    conn: psycopg.Connection,
+    instrument_id: str,
+    as_of_date: date,
+    holdings: list[tuple[str, Decimal]],
+) -> int:
+    rows = [
+        {
+            "instrument_id": instrument_id,
+            "as_of_date": as_of_date,
+            "rank": i + 1,
+            "company_name": company_name,
+            "weight": weight,
+        }
+        for i, (company_name, weight) in enumerate(holdings[:10])
+    ]
+    with conn.cursor() as cur:
+        for row in rows:
+            cur.execute(_STORE_TOP_HOLDINGS_SQL, row)
     conn.commit()
     return len(rows)
 
@@ -170,5 +230,20 @@ def refresh_exposure(
 
         store_exposure(conn, instrument_id, today, exposure, mapping)
         result.refreshed.append(instrument_id)
+
+        # Top holdings is a separate accessor call — its own failure
+        # mode (or absence, if the provider doesn't implement it) must
+        # not roll back the sector/country refresh that already
+        # succeeded above.
+        fetch_top_holdings = getattr(provider, "fetch_top_holdings", None)
+        if fetch_top_holdings is not None:
+            try:
+                holdings = fetch_top_holdings(row["isin"])
+            except Exception as exc:  # noqa: BLE001 — scraped page, any failure mode
+                result.warnings.append(
+                    f"{instrument_id}: top holdings refresh failed: {exc}"
+                )
+            else:
+                store_top_holdings(conn, instrument_id, today, holdings)
 
     return result

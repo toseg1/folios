@@ -1,6 +1,7 @@
 - account_id: DEMO-BROKER-CTO
   broker: Demo Broker
-  institution: Demo Broker SA
+  ultimate_parent: Demo Broker SA
+  custodian: Demo Custodian Bank
   account_type: securities
   fiscal_envelope: CTO
   custody_type: BROKER
@@ -9,7 +10,7 @@
 
 - account_id: DEMO-BANK-CURRENT
   broker: Demo Bank
-  institution: Demo Bank SA
+  ultimate_parent: Demo Bank SA
   account_type: cash
   fiscal_envelope: CURRENT
   custody_type: BANK
