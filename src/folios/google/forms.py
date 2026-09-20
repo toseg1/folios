@@ -138,14 +138,17 @@ NEW_INSTRUMENT_SECTION = (
     "new_instrument", "New instrument", [],
     [
         Field("Name", "text"),
+        Field("Ticker", "text", required=False),
         Field("Yahoo ticker", "text"),
         Field("ISIN", "text", required=False),
         Field("Currency", "dropdown", dimension="currency"),
-        Field("Region", "dropdown", dimension="region", required=False),
-        Field("Sector", "dropdown", dimension="sector", required=False),
+        # Sector/industry/domicile country are no longer asked here — for
+        # EQUITY they're fetched from yfinance and mapped through
+        # config/exposure_mapping.csv at creation time (see
+        # new_instrument.YFinanceInfoProvider); region was dropped
+        # entirely (migrations/010).
         Field("Instrument type", "dropdown", dimension="instrument_type", required=False),
         Field("Issuer", "text", required=False),
-        Field("Domicile country", "text", required=False),
         Field("Protection type", "dropdown", dimension="protection_type", required=False),
         Field("PEA eligible", "dropdown", choices=("true", "false"), required=False),
         # The page's sole navigator (Currency no longer is) — routes to a
@@ -178,21 +181,17 @@ NEW_INSTRUMENT_FUND_SECTION = (
         ),
         Field("UCITS", "dropdown", required=False, choices=("true", "false")),
         Field("RHP (years)", "number", required=False),
-        Field(
-            "Distribution policy", "dropdown", required=False,
-            choices=("ACCUMULATING", "DISTRIBUTING"),
-        ),
-        Field("Ongoing charges", "number", required=False),
+        # Distribution policy, Ongoing charges, Replication method and
+        # Benchmark index are no longer asked here — for ETP with an ISIN,
+        # they're auto-fetched from justETF's "basics" tab at creation
+        # time (exposure.StockdexExposureProvider.fetch_basics /
+        # parse_basics) and kept fresh by `folios exposure --refresh`.
+        # They stay manual for a non-listed FUND (not on justETF).
         Field("SRI", "number", required=False),
-        Field(
-            "Replication method", "dropdown", required=False,
-            choices=("PHYSICAL_FULL", "PHYSICAL_SAMPLED", "SYNTHETIC"),
-        ),
         Field("Swap counterparty", "text", required=False),
         Field("Uses securities lending", "dropdown", required=False, choices=("true", "false")),
-        Field("Depositary", "text", required=False),
+        Field("Custodian", "text", required=False),
         Field("SFDR article", "dropdown", required=False, choices=("6", "8", "9")),
-        Field("Benchmark index", "text", required=False),
         Field("justETF id", "text", required=False),
         Field("Subscription price (SCPI)", "number", required=False),
         Field("Withdrawal price (SCPI)", "number", required=False),

@@ -153,7 +153,7 @@ def test_v_fee_drag_uses_ongoing_charges_times_market_value(worked_example_conn)
     assert rows[0]["annual_fee_drag_base"] == Decimal("2.00000000000000000000000000000000")
 
 
-def test_v_custody_exposure_two_layers(worked_example_conn):
+def test_v_custody_exposure_three_layers(worked_example_conn):
     with worked_example_conn.cursor() as cur:
         cur.execute(
             """
@@ -174,10 +174,10 @@ def test_v_custody_exposure_two_layers(worked_example_conn):
         r["layer"]: r
         for r in _rows(worked_example_conn, "SELECT * FROM marts.v_custody_exposure")
     }
-    assert rows["institution"]["custodian"] == "Demo Broker SA"
-    assert rows["institution"]["value_base"] == Decimal("1300.00000000000000000000000000")
-    assert rows["depositary"]["custodian"] == "Demo Depositary Bank"
-    assert rows["depositary"]["value_base"] == Decimal("1000.00000000000000000000000000")
+    assert rows["ultimate_parent"]["custodian"] == "Demo Broker SA"
+    assert rows["ultimate_parent"]["value_base"] == Decimal("1300.00000000000000000000000000")
+    assert rows["fund_custodian"]["custodian"] == "Demo Depositary Bank"
+    assert rows["fund_custodian"]["value_base"] == Decimal("1000.00000000000000000000000000")
 
 
 def test_v_risk_profile_is_a_distribution_not_an_average(worked_example_conn):

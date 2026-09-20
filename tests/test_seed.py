@@ -76,7 +76,7 @@ def test_unknown_dimension_code_fails_naming_it(migrated_conn):
     accounts = [{"account_id": "BAD-ACC", "account_type": "securities",
                  "fiscal_envelope": "NOT_A_REAL_CODE", "custody_type": None}]
     dimensions = [{"dimension": "account_type", "code": "securities",
-                   "label_fr": "x", "label_en": "x", "sort_order": 0}]
+                   "label_en": "x", "sort_order": 0}]
     errors = validate_dimension_values(dimensions, accounts, [])
     assert len(errors) == 1
     assert "BAD-ACC" in errors[0]
@@ -113,9 +113,9 @@ def test_subtype_cross_reference_warnings():
 
 def _write_config_with_new_envelope(config_dir: Path, valid: bool = True) -> None:
     (config_dir / "dimensions.csv").write_text(
-        "dimension,code,label_fr,label_en,sort_order\n"
-        "account_type,securities,x,x,0\n"
-        + ("fiscal_envelope,PEA_JEUNE,PEA Jeune,Youth equity plan,0\n" if valid else "")
+        "dimension,code,label_en,sort_order\n"
+        "account_type,securities,x,0\n"
+        + ("fiscal_envelope,PEA_JEUNE,Youth equity plan,0\n" if valid else "")
     )
     (config_dir / "accounts.yml").write_text(
         "- account_id: NEW-ACC\n"
