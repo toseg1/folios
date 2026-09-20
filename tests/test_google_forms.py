@@ -2,13 +2,25 @@ from typing import Any
 
 import pytest
 
+from folios import seed as seed_module
 from folios.google import forms as google_forms
 from folios.seed import seed
 from tests.test_seed import EXAMPLE_CONFIG
 
 
 @pytest.fixture()
-def seeded_conn(migrated_conn):
+def seeded_conn(migrated_conn, monkeypatch):
+    # dimension_codes()'s currency branch calls fx.currencies_from_config(),
+    # which defaults to seed.CONFIG_DIR rather than taking the connection's
+    # own config source — without this, it silently reads whatever real,
+    # gitignored config/ happens to be on the machine running the tests.
+    # On a dev machine with real config/accounts.yml + instruments.csv that
+    # masks the bug; on a clean CI checkout (no real config/ at all) it
+    # returns an empty currency set, which starves every Currency dropdown
+    # this file builds. Point it at the same EXAMPLE_CONFIG actually seeded
+    # into the DB below, so tests don't depend on what's on disk outside
+    # the repo.
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", EXAMPLE_CONFIG)
     seed(migrated_conn, EXAMPLE_CONFIG)
     return migrated_conn
 
