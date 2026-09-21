@@ -46,3 +46,4 @@ logs/
 # Configuration files
 config/accounts.yml
 config/*.csv
+config/backups/

@@ -418,6 +418,29 @@ def test_fix_ticker_rejects_unknown_instrument(seeded_conn, writable_config_dir)
     assert "NOT-A-REAL-INSTRUMENT" in result.error
 
 
+def test_append_row_accepts_a_matching_existing_header(tmp_path):
+    path = tmp_path / "instruments.csv"
+    path.write_text("a,b,c\nfirst,1,x\n", encoding="utf-8")
+
+    new_instrument._append_row(path, ("a", "b", "c"), {"a": "second", "b": "2", "c": "y"})
+
+    assert path.read_text() == "a,b,c\nfirst,1,x\nsecond,2,y\n"
+
+
+def test_append_row_rejects_a_stale_existing_header(tmp_path):
+    path = tmp_path / "instruments.csv"
+    # Old 2-column shape — appending a 3-column row here would silently
+    # misalign every future csv.DictReader() read, the exact bug a stale
+    # config/instruments.csv header caused in production.
+    path.write_text("a,b\nfirst,1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="on-disk header doesn't match"):
+        new_instrument._append_row(path, ("a", "b", "c"), {"a": "second", "b": "2", "c": "y"})
+
+    # Nothing was appended — the file is untouched.
+    assert path.read_text() == "a,b\nfirst,1\n"
+
+
 def test_fix_ticker_rejects_ticker_with_no_history(seeded_conn, writable_config_dir):
     validator = FakeTickerValidator(valid=False)
 

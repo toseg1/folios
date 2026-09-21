@@ -408,9 +408,11 @@ def form_init() -> None:
 
 @app.command("form-sync")
 def form_sync() -> None:
-    """Refreshes the Account/Symbol/Currency dropdown choices on the
-    existing form in place. Run after editing config/ (a new account,
-    instrument alias, or currency) — structure and routing are untouched."""
+    """Refreshes every dropdown sourced from config/ on the existing form
+    in place — accounts, instrument symbols, and every dimension-backed
+    field (currency, asset class, instrument type, protection type, ...).
+    Run after editing config/ (a new account, instrument alias, currency,
+    or dimensions.csv row) — structure and routing are untouched."""
     conn = db.connect()
     try:
         try:

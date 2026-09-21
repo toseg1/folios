@@ -1,2 +1,3 @@
 instrument_id,coupon_rate,coupon_frequency,maturity_date,face_value,issuer_type,credit_rating,seniority,is_callable
 DEMO-BOND-2030,0.0250,ANNUAL,2030-05-25,1000.00,SOVEREIGN,AA,SENIOR_UNSECURED,false
+OAT-2032,0.0300,ANNUAL,2032-05-25,1000.00,SOVEREIGN,AA,SENIOR_UNSECURED,false

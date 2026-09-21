@@ -270,6 +270,83 @@ def test_form_sync_updates_only_config_driven_dropdowns(seeded_conn, monkeypatch
     assert result["updated_items"] == len(service.batch_calls[-1])
 
 
+def test_form_sync_refreshes_dimension_backed_dropdowns_beyond_account_symbol_currency(
+    seeded_conn, monkeypatch
+):
+    # Regression test: form_sync used to special-case only titles
+    # "Account", "Symbol" and "Currency" — a new config/dimensions.csv
+    # code for asset_class/instrument_type/protection_type never reached
+    # the live form until form-init rebuilt it from scratch.
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.dimensions (dimension, code, label_en, sort_order) VALUES "
+            "('asset_class', 'COMMODITY', 'Commodity', 60), "
+            "('instrument_type', 'FUTURE', 'Future', 110), "
+            "('protection_type', 'CAPITAL_GUARANTEED', 'Capital guaranteed', 20)"
+        )
+    seeded_conn.commit()
+
+    google_forms.form_sync(seeded_conn)
+
+    def values(field_label: str) -> list[str]:
+        item = _item_in_section(service, "New instrument", field_label)
+        return [o["value"] for o in _options(item)]
+
+    assert "COMMODITY" in values("Asset class")
+    assert "FUTURE" in values("Instrument type")
+    assert "CAPITAL_GUARANTEED" in values("Protection type")
+
+
+def test_form_sync_refreshes_peg_currency_despite_its_title_not_being_currency(
+    seeded_conn, monkeypatch
+):
+    # Peg currency is dimension="currency" too, but the old title=="Currency"
+    # special case never matched it.
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+
+    updated_titles = {
+        req["updateItem"]["item"]["title"] for call in service.batch_calls[-1:] for req in call
+    }
+    assert "Peg currency" in updated_titles
+
+
+def test_form_sync_preserves_asset_class_routing_after_refresh(seeded_conn, monkeypatch):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    def page_break_id(title: str) -> str:
+        return next(item["itemId"] for item in service.items if item.get("title") == title)
+
+    fund_page_id = page_break_id("New instrument — Fund/ETP details")
+    bond_page_id = page_break_id("New instrument — Bond details")
+    crypto_page_id = page_break_id("New instrument — Crypto details")
+
+    google_forms.form_sync(seeded_conn)
+
+    asset_class_options = {
+        o["value"]: o
+        for o in _options(_item_in_section(service, "New instrument", "Asset class"))
+    }
+    assert asset_class_options["ETP"]["goToSectionId"] == fund_page_id
+    assert asset_class_options["FUND"]["goToSectionId"] == fund_page_id
+    assert asset_class_options["BOND"]["goToSectionId"] == bond_page_id
+    assert asset_class_options["CRYPTO"]["goToSectionId"] == crypto_page_id
+    assert asset_class_options["EQUITY"]["goToAction"] == "SUBMIT_FORM"
+    assert "goToSectionId" not in asset_class_options["EQUITY"]
+
+
 def test_form_sync_reconciles_config_edits_without_a_separate_init(
     seeded_conn, monkeypatch, tmp_path
 ):

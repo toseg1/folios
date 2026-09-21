@@ -610,20 +610,28 @@ def _refresh_choice_request(
 
 
 def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
-    """Refreshes the Account/Symbol/Currency dropdown choices on the
-    existing form in place — structure, page breaks and routing are
-    untouched. Requires form_init to have run first.
+    """Refreshes every dropdown sourced from config/ on the existing form
+    in place — Account, Symbol, and every dimension-backed field (Currency
+    everywhere it appears, Asset class, Instrument type, Protection type,
+    Peg currency, ...) — structure, page breaks and routing are untouched.
+    Requires form_init to have run first.
 
     Reconciles config/ into the database first (same as `folios init`)
-    so a hand-edited account/alias/currency is picked up without a
-    separate `folios init` step — config/ is the source of truth, the
-    DB tables this reads from are just a projection of it.
+    so a hand-edited account/alias/currency/dimension is picked up
+    without a separate `folios init` step — config/ is the source of
+    truth, the DB tables this reads from are just a projection of it.
 
     Section-aware (tracks which page each item belongs to) so it can
     rebuild options via the same _choice_options() create_form uses —
     a title match alone can't tell Trade's Symbol (terminal, jumps on
     NOT_LISTED) from Income's (neither), or Trade's Currency (plain)
-    from Income's (terminal)."""
+    from Income's (terminal). Every Field with a `dimension` is refreshed
+    generically off that same lookup, rather than special-cased by title
+    — the original title=="Currency" special case missed Peg currency
+    (dimension="currency" under a different label) and never touched
+    Asset class/Instrument type/Protection type at all, so an edit to
+    config/dimensions.csv (a new code, a renamed one) never reached the
+    live form until `form-init` built a brand new one."""
     state = load_form_state()
     if state is None:
         raise FormNotInitializedError
@@ -639,12 +647,13 @@ def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
         for _, title, _, fields in _all_sections()
         for field in fields
     }
-    new_instrument_section_id = next(
-        item["itemId"] for item in items if item.get("title") == "New instrument"
-    )
+    section_ids = {
+        key: next(item["itemId"] for item in items if item.get("title") == title)
+        for key, title, _, _ in _all_sections()
+    }
+    new_instrument_section_id = section_ids["new_instrument"]
 
     account_choices = sorted(validate.known_accounts(conn))
-    currency_choices = sorted(fx.currencies_from_config())
 
     requests: list[dict[str, Any]] = []
     current_section_title: str | None = None
@@ -663,18 +672,27 @@ def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
         title = item.get("title")
         if title == "Account":
             options = [{"value": a} for a in account_choices]
-        elif title in ("Symbol", "Currency"):
+        elif title == "Symbol":
             field = field_by_section[(current_section_title, title)]
-            if title == "Symbol":
-                choices = symbol_choices(conn, include_not_listed=field.allow_new_instrument)
-                goto = (
-                    {NOT_LISTED: new_instrument_section_id} if field.allow_new_instrument else None
-                )
-                options = _choice_options(field, choices, goto)
-            else:
-                options = _choice_options(field, currency_choices, None)
+            choices = symbol_choices(conn, include_not_listed=field.allow_new_instrument)
+            goto = (
+                {NOT_LISTED: new_instrument_section_id} if field.allow_new_instrument else None
+            )
+            options = _choice_options(field, choices, goto)
         else:
-            continue
+            field = field_by_section.get((current_section_title, title))
+            if field is None or field.dimension is None:
+                # Fixed-choice dropdowns (e.g. Legal structure, Is
+                # callable) aren't sourced from config/ at all — nothing
+                # to refresh.
+                continue
+            codes = dimension_codes(conn, field.dimension)
+            goto = (
+                {value: section_ids[key] for value, key in field.route_by_value.items()}
+                if field.route_by_value
+                else None
+            )
+            options = _choice_options(field, codes, goto)
 
         requests.append(_refresh_choice_request(item, options, index))
 

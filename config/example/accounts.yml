@@ -16,3 +16,93 @@
   custody_type: BANK
   base_currency: EUR
   opened_on: 2023-06-01
+
+# Real-world accounts below, alongside the two DEMO- ones above (kept as-is —
+# other tests and data/samples/transactions_good.csv reference them by
+# name). These demonstrate the rest of _ACCOUNT_COLUMNS with realistic
+# French broker/custody patterns: holding_structure, key_storage,
+# contractual_rate, maturity_date, deposit_ceiling, guarantee_scheme,
+# closed_on and is_active don't appear on the two DEMO- accounts above.
+
+- account_id: BOURSOBANK-CTO
+  broker: BoursoBank
+  ultimate_parent: Société Générale
+  custodian: CACEIS Bank
+  account_type: securities
+  fiscal_envelope: CTO
+  custody_type: BROKER
+  holding_structure: NOMINEE_SEGREGATED
+  base_currency: EUR
+  opened_on: 2019-03-12
+
+- account_id: BOURSOBANK-PEA
+  broker: BoursoBank
+  ultimate_parent: Société Générale
+  custodian: CACEIS Bank
+  account_type: securities
+  fiscal_envelope: PEA
+  custody_type: BROKER
+  holding_structure: NOMINEE_SEGREGATED
+  base_currency: EUR
+  opened_on: 2019-03-12
+
+- account_id: TRADEREPUBLIC-CTO
+  broker: Trade Republic
+  ultimate_parent: Trade Republic Bank GmbH
+  custodian: CACEIS Bank
+  account_type: securities
+  fiscal_envelope: CTO
+  custody_type: BROKER
+  holding_structure: OMNIBUS
+  base_currency: EUR
+  opened_on: 2022-07-01
+
+- account_id: LINXEA-SPIRIT-AV
+  broker: Linxea
+  ultimate_parent: Linxea
+  custodian: Generali
+  account_type: securities
+  fiscal_envelope: AV
+  custody_type: INSURER
+  base_currency: EUR
+  opened_on: 2020-11-05
+
+- account_id: CAISSE-EPARGNE-LIVRETA
+  broker: Caisse d'Épargne
+  ultimate_parent: Groupe BPCE
+  account_type: cash
+  fiscal_envelope: LIVRET_A
+  custody_type: BANK
+  deposit_ceiling: 22950
+  guarantee_scheme: FGDR
+  base_currency: EUR
+  opened_on: 2015-01-10
+
+- account_id: BOURSOBANK-PEL
+  broker: BoursoBank
+  ultimate_parent: Société Générale
+  account_type: cash
+  fiscal_envelope: PEL
+  custody_type: BANK
+  contractual_rate: 0.0175
+  maturity_date: 2031-04-01
+  base_currency: EUR
+  opened_on: 2021-04-01
+
+- account_id: LEDGER-SELFCUSTODY
+  broker: Ledger
+  account_type: crypto
+  custody_type: SELF_CUSTODY
+  key_storage: COLD_HARDWARE
+  base_currency: EUR
+  opened_on: 2021-09-15
+
+- account_id: KRAKEN-EXCHANGE
+  broker: Kraken
+  ultimate_parent: Payward Ltd
+  account_type: crypto
+  custody_type: EXCHANGE
+  base_currency: EUR
+  opened_on: 2018-02-20
+  closed_on: 2023-06-30
+  is_active: false

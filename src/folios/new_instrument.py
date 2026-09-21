@@ -135,6 +135,18 @@ def _map_dimension(
 def _append_row(path: Path, columns: tuple[str, ...], row: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = path.exists()
+    if file_exists:
+        with path.open(newline="", encoding="utf-8") as f:
+            existing_header = f.readline().rstrip("\r\n")
+        expected_header = ",".join(columns)
+        if existing_header and existing_header != expected_header:
+            raise ValueError(
+                f"{path}: on-disk header doesn't match the current schema — "
+                f"appending would silently misalign every column on the next "
+                f"read.\n  found:    {existing_header}\n  expected: {expected_header}\n"
+                f"Fix the header (and reorder/pad any existing data rows to match) "
+                f"before adding new rows."
+            )
     with path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=columns)
         if not file_exists:
