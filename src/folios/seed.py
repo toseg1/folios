@@ -81,6 +81,10 @@ def load_instruments(path: Path) -> list[dict[str, Any]]:
     return _load_csv(path)
 
 
+def load_aliases(path: Path) -> list[dict[str, Any]]:
+    return _load_csv(path)
+
+
 def validate_dimension_values(
     dimensions: list[dict[str, Any]],
     accounts: list[dict[str, Any]],
@@ -384,7 +388,7 @@ def seed(conn: psycopg.Connection, config_dir: Path | None = None) -> SeedResult
     fund_rows = _load_csv(config_dir / "instruments_fund.csv")
     bond_rows = _load_csv(config_dir / "instruments_bond.csv")
     crypto_rows = _load_csv(config_dir / "instruments_crypto.csv")
-    aliases = _load_csv(config_dir / "aliases.csv")
+    aliases = load_aliases(config_dir / "aliases.csv")
 
     errors = validate_dimension_values(dimensions, accounts, instruments)
     if errors:
