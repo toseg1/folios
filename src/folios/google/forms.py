@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import psycopg
 from googleapiclient.discovery import build
 
-from folios import fx, seed, validate
+from folios import fx, seed
 from folios.google.auth import get_credentials
 from folios.validate import REPO_ROOT
 
@@ -261,20 +262,43 @@ VALUATION_SECTION = (
 )
 
 
+def _is_active(row: dict[str, Any]) -> bool:
+    # accounts.yml gives a native YAML bool; instruments.csv gives CSV
+    # text ("true"/"false") — a missing column means "active" either way,
+    # matching seed()'s own COALESCE(is_active, true) default.
+    value = row.get("is_active")
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() != "false"
+
+
 def dimension_codes(conn: psycopg.Connection, dimension: str) -> list[str]:
+    # Read config/ directly rather than core.dimensions: seed() only
+    # upserts, it never deletes, so a code removed from config/ would
+    # otherwise linger in the DB (and the dropdown) forever.
     if dimension == "currency":
         return sorted(fx.currencies_from_config())
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT code FROM core.dimensions WHERE dimension = %s ORDER BY sort_order, code",
-            (dimension,),
-        )
-        return [row[0] for row in cur.fetchall()]
+    rows = seed.load_dimensions(seed.CONFIG_DIR / "dimensions.csv")
+    matches = [row for row in rows if row["dimension"] == dimension]
+    matches.sort(key=lambda row: (int(row.get("sort_order") or 0), row["code"]))
+    return [row["code"] for row in matches]
+
+
+def account_choices(config_dir: Path | None = None) -> list[str]:
+    # Config-direct for the same reason as dimension_codes above, plus
+    # it's the first place is_active is actually honored anywhere.
+    config_dir = config_dir if config_dir is not None else seed.CONFIG_DIR
+    accounts = seed.load_accounts(config_dir / "accounts.yml")
+    return sorted(row["account_id"] for row in accounts if _is_active(row))
 
 
 def symbol_choices(conn: psycopg.Connection, include_not_listed: bool = True) -> list[str]:
-    aliases = validate.alias_to_instrument(conn)
-    choices = sorted(aliases)
+    instruments = seed.load_instruments(seed.CONFIG_DIR / "instruments.csv")
+    active_ids = {row["instrument_id"] for row in instruments if _is_active(row)}
+    aliases = seed.load_aliases(seed.CONFIG_DIR / "aliases.csv")
+    choices = sorted({row["alias"] for row in aliases if row["instrument_id"] in active_ids})
     if include_not_listed:
         return [*choices, NOT_LISTED]
     return choices or [NO_ALIASES_PLACEHOLDER]
@@ -334,7 +358,7 @@ def _routing_requests(
     # goToSectionId values captured from pass 1 — this is the actual
     # branching mechanism (confirmed live: DROP_DOWN choiceQuestion +
     # per-option goToSectionId targeting a pageBreakItem's itemId).
-    accounts = sorted(validate.known_accounts(conn))
+    accounts = account_choices()
     type_options: list[dict[str, Any]] = []
     for key, _, txn_types, _ in SECTIONS:
         for txn_type in txn_types:
@@ -653,7 +677,7 @@ def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
     }
     new_instrument_section_id = section_ids["new_instrument"]
 
-    account_choices = sorted(validate.known_accounts(conn))
+    account_ids = account_choices()
 
     requests: list[dict[str, Any]] = []
     current_section_title: str | None = None
@@ -671,7 +695,7 @@ def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
 
         title = item.get("title")
         if title == "Account":
-            options = [{"value": a} for a in account_choices]
+            options = [{"value": a} for a in account_ids]
         elif title == "Symbol":
             field = field_by_section[(current_section_title, title)]
             choices = symbol_choices(conn, include_not_listed=field.allow_new_instrument)

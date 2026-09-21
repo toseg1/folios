@@ -145,10 +145,27 @@ def test_dimension_codes_currency_comes_from_config(seeded_conn, monkeypatch):
     assert codes == ["EUR", "GBP", "USD"]
 
 
-def test_dimension_codes_reads_core_dimensions(seeded_conn):
+def test_dimension_codes_reads_from_config_even_if_db_disagrees(seeded_conn):
+    # dimension_codes() must source choices from config/dimensions.csv,
+    # not core.dimensions — seed() only ever upserts, so a code removed
+    # from config/ would otherwise linger in the DB (and the dropdown)
+    # forever. Proven here by deleting the DB's copy and confirming the
+    # code still comes through from config/.
+    with seeded_conn.cursor() as cur:
+        cur.execute("DELETE FROM core.dimensions WHERE dimension = 'asset_class'")
+    seeded_conn.commit()
+
     codes = google_forms.dimension_codes(seeded_conn, "asset_class")
     assert "EQUITY" in codes
     assert "CRYPTO" in codes
+
+
+def test_account_choices_excludes_inactive_accounts(seeded_conn):
+    # KRAKEN-EXCHANGE is is_active: false in config/example/accounts.yml
+    # — a closed account must not be offered for new entries.
+    choices = google_forms.account_choices()
+    assert "KRAKEN-EXCHANGE" not in choices
+    assert "LEDGER-SELFCUSTODY" in choices
 
 
 def test_symbol_choices_includes_aliases_and_not_listed_sentinel(seeded_conn):
@@ -158,14 +175,38 @@ def test_symbol_choices_includes_aliases_and_not_listed_sentinel(seeded_conn):
     assert choices[-1] == google_forms.NOT_LISTED
 
 
-def test_symbol_choices_excluding_not_listed_falls_back_when_no_aliases_exist(seeded_conn):
+def test_symbol_choices_excludes_aliases_of_inactive_instruments(
+    seeded_conn, monkeypatch, tmp_path
+):
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    instruments_path = config_copy / "instruments.csv"
+    instruments_path.write_text(
+        instruments_path.read_text().replace(
+            "WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,ETP,ETN,EUR,,,,WisdomTree,GB,"
+            "MARKET_EXPOSED,false,manual,true",
+            "WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,ETP,ETN,EUR,,,,WisdomTree,GB,"
+            "MARKET_EXPOSED,false,manual,false",
+        )
+    )
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
+
+    choices = google_forms.symbol_choices(seeded_conn)
+    assert "GOLD" not in choices
+    assert "DEMO" in choices
+
+
+def test_symbol_choices_excluding_not_listed_falls_back_when_no_aliases_exist(
+    seeded_conn, monkeypatch, tmp_path
+):
     # Confirmed live: an empty ChoiceQuestion.options 400s on batchUpdate.
     # A fresh instance with no instruments configured yet — the user's
     # actual state when this regressed — must not produce zero options
     # for Income's Symbol dropdown (allow_new_instrument=False).
-    with seeded_conn.cursor() as cur:
-        cur.execute("DELETE FROM core.instrument_aliases")
-    seeded_conn.commit()
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    (config_copy / "aliases.csv").write_text("alias,source,instrument_id\n")
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
 
     choices = google_forms.symbol_choices(seeded_conn, include_not_listed=False)
     assert choices == [google_forms.NO_ALIASES_PLACEHOLDER]
@@ -239,19 +280,27 @@ def test_form_sync_without_form_init_raises(seeded_conn):
         google_forms.form_sync(seeded_conn)
 
 
-def test_form_sync_updates_only_config_driven_dropdowns(seeded_conn, monkeypatch):
+def test_form_sync_updates_only_config_driven_dropdowns(seeded_conn, monkeypatch, tmp_path):
     service = FakeFormsService()
     google_forms.create_form(seeded_conn, service)
     google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
     monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
 
-    with seeded_conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO core.accounts (account_id, broker, ultimate_parent, account_type, "
-            "fiscal_envelope, custody_type, base_currency, opened_on) VALUES "
-            "('NEW-ACCOUNT', 'B', 'I', 'securities', 'CTO', 'BROKER', 'EUR', '2026-01-01')"
-        )
-    seeded_conn.commit()
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    accounts_path = config_copy / "accounts.yml"
+    accounts_path.write_text(
+        accounts_path.read_text() + "\n"
+        "- account_id: NEW-ACCOUNT\n"
+        "  broker: B\n"
+        "  ultimate_parent: I\n"
+        "  account_type: securities\n"
+        "  fiscal_envelope: CTO\n"
+        "  custody_type: BROKER\n"
+        "  base_currency: EUR\n"
+        "  opened_on: 2026-01-01\n"
+    )
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
 
     result = google_forms.form_sync(seeded_conn)
 
@@ -271,7 +320,7 @@ def test_form_sync_updates_only_config_driven_dropdowns(seeded_conn, monkeypatch
 
 
 def test_form_sync_refreshes_dimension_backed_dropdowns_beyond_account_symbol_currency(
-    seeded_conn, monkeypatch
+    seeded_conn, monkeypatch, tmp_path
 ):
     # Regression test: form_sync used to special-case only titles
     # "Account", "Symbol" and "Currency" — a new config/dimensions.csv
@@ -282,14 +331,16 @@ def test_form_sync_refreshes_dimension_backed_dropdowns_beyond_account_symbol_cu
     google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
     monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
 
-    with seeded_conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO core.dimensions (dimension, code, label_en, sort_order) VALUES "
-            "('asset_class', 'COMMODITY', 'Commodity', 60), "
-            "('instrument_type', 'FUTURE', 'Future', 110), "
-            "('protection_type', 'CAPITAL_GUARANTEED', 'Capital guaranteed', 20)"
-        )
-    seeded_conn.commit()
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    dimensions_path = config_copy / "dimensions.csv"
+    dimensions_path.write_text(
+        dimensions_path.read_text()
+        + "asset_class,COMMODITY,Commodity,60\n"
+        "instrument_type,FUTURE,Future,110\n"
+        "protection_type,CAPITAL_GUARANTEED,Capital guaranteed,20\n"
+    )
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
 
     google_forms.form_sync(seeded_conn)
 
@@ -369,6 +420,109 @@ def test_form_sync_reconciles_config_edits_without_a_separate_init(
 
     symbol_item = _item_in_section(service, "Trade", "Symbol")
     assert "DEMO2" in [o["value"] for o in _options(symbol_item)]
+
+
+def test_form_sync_drops_dimension_codes_removed_from_config(seeded_conn, monkeypatch, tmp_path):
+    # The actual bug report: seed() only upserts, it never deletes, so an
+    # instrument_type removed from config/dimensions.csv stayed in
+    # core.dimensions (and kept showing up in the dropdown) forever. ETC
+    # is already seeded into the DB by the seeded_conn fixture below,
+    # before this test's config copy removes it.
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    dimensions_path = config_copy / "dimensions.csv"
+    dimensions_path.write_text(
+        "".join(
+            line
+            for line in dimensions_path.read_text().splitlines(keepends=True)
+            if not line.startswith("instrument_type,ETC,")
+        )
+    )
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
+
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM core.dimensions WHERE dimension='instrument_type' AND code='ETC'"
+        )
+        assert cur.fetchone() is not None, "sanity: seed() must not have deleted the stale row"
+
+    instrument_type_item = _item_in_section(service, "New instrument", "Instrument type")
+    instrument_type_values = [o["value"] for o in _options(instrument_type_item)]
+    assert "ETC" not in instrument_type_values
+    assert "SHARE" in instrument_type_values
+
+
+def test_form_sync_drops_accounts_removed_from_config(seeded_conn, monkeypatch, tmp_path):
+    # Same bug, for the Account dropdown: CAISSE-EPARGNE-LIVRETA is
+    # already seeded into core.accounts by the seeded_conn fixture below,
+    # before this test's config copy removes it.
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    accounts_path = config_copy / "accounts.yml"
+    accounts_path.write_text(
+        "\n\n".join(
+            block
+            for block in accounts_path.read_text().split("\n\n")
+            if "account_id: CAISSE-EPARGNE-LIVRETA" not in block
+        )
+    )
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
+
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+
+    with seeded_conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM core.accounts WHERE account_id='CAISSE-EPARGNE-LIVRETA'")
+        assert cur.fetchone() is not None, "sanity: seed() must not have deleted the stale row"
+
+    account_item = next(item for item in service.items if item["title"] == "Account")
+    account_values = [o["value"] for o in _options(account_item)]
+    assert "CAISSE-EPARGNE-LIVRETA" not in account_values
+    assert "LEDGER-SELFCUSTODY" in account_values
+
+
+def test_form_sync_drops_aliases_removed_from_config(seeded_conn, monkeypatch, tmp_path):
+    # Same bug, for the Symbol dropdown: the GOLD alias is already seeded
+    # into core.instrument_aliases by the seeded_conn fixture below,
+    # before this test's config copy removes it.
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    aliases_path = config_copy / "aliases.csv"
+    aliases_path.write_text(
+        "".join(
+            line
+            for line in aliases_path.read_text().splitlines(keepends=True)
+            if not line.startswith("GOLD,")
+        )
+    )
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
+
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+
+    with seeded_conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM core.instrument_aliases WHERE alias='GOLD'")
+        assert cur.fetchone() is not None, "sanity: seed() must not have deleted the stale row"
+
+    symbol_item = _item_in_section(service, "Trade", "Symbol")
+    symbol_values = [o["value"] for o in _options(symbol_item)]
+    assert "GOLD" not in symbol_values
+    assert "DEMO" in symbol_values
 
 
 def test_form_sync_preserves_not_listed_routing(seeded_conn, monkeypatch):
