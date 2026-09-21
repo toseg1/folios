@@ -1,23 +1,23 @@
-dimension,code,label_fr,label_en,sort_order
-account_type,securities,Compte titres,Securities account,10
-account_type,cash,Compte especes,Cash account,20
-account_type,crypto,Compte crypto,Crypto account,30
-fiscal_envelope,CTO,Compte-titres ordinaire,Ordinary securities account,10
-fiscal_envelope,PEA,Plan d'epargne en actions,Equity savings plan,20
-fiscal_envelope,PEA_PME,Plan d'epargne en actions PME-ETI,Equity savings plan for SMEs,25
-fiscal_envelope,AV,Assurance vie,Life insurance,30
-fiscal_envelope,PER,Plan d'epargne retraite,Retirement savings plan,35
-fiscal_envelope,LIVRET_A,Livret A,Livret A savings account,40
-fiscal_envelope,LDDS,Livret de developpement durable et solidaire,Sustainable development savings account,50
-fiscal_envelope,LEP,Livret d'epargne populaire,Popular savings account,55
-fiscal_envelope,PEL,Plan epargne logement,Home savings plan,60
-fiscal_envelope,CAT,Compte a terme,Term deposit account,65
-fiscal_envelope,CURRENT,Compte courant,Current account,70
-custody_type,BROKER,Courtier,Broker,10
-custody_type,BANK,Banque,Bank,20
-custody_type,INSURER,Assureur,Insurer,30
-custody_type,EXCHANGE,Plateforme d'echange,Exchange,40
-custody_type,SELF_CUSTODY,Autoconservation,Self custody,50
+dimension,code,label_en,sort_order
+account_type,securities,Securities account,10
+account_type,cash,Cash account,20
+account_type,crypto,Crypto account,30
+fiscal_envelope,CTO,Ordinary securities account,10
+fiscal_envelope,PEA,Equity savings plan,20
+fiscal_envelope,PEA_PME,Equity savings plan for SMEs,25
+fiscal_envelope,AV,Life insurance,30
+fiscal_envelope,PER,Retirement savings plan,35
+fiscal_envelope,LIVRET_A,Livret A savings account,40
+fiscal_envelope,LDDS,Sustainable development savings account,50
+fiscal_envelope,LEP,Popular savings account,55
+fiscal_envelope,PEL,Home savings plan,60
+fiscal_envelope,CAT,Term deposit account,65
+fiscal_envelope,CURRENT,Current account,70
+custody_type,BROKER,Broker,10
+custody_type,BANK,Bank,20
+custody_type,INSURER,Insurer,30
+custody_type,EXCHANGE,Exchange,40
+custody_type,SELF_CUSTODY,Self custody,50
 asset_class,EQUITY,Equity,10
 asset_class,ETP,Exchange-traded product,20
 asset_class,FUND,Fund,30
