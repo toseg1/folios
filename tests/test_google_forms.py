@@ -1,3 +1,4 @@
+import shutil
 from typing import Any
 
 import pytest
@@ -267,6 +268,30 @@ def test_form_sync_updates_only_config_driven_dropdowns(seeded_conn, monkeypatch
     assert "Date" not in updated_titles
     assert "Type" not in updated_titles
     assert result["updated_items"] == len(service.batch_calls[-1])
+
+
+def test_form_sync_reconciles_config_edits_without_a_separate_init(
+    seeded_conn, monkeypatch, tmp_path
+):
+    # Regression test: form-sync's own docstring says "run after editing
+    # config/" — it must pick up a hand-edited config/aliases.csv itself,
+    # not only aliases already reconciled into the DB by a prior `folios
+    # init`.
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    aliases_path = config_copy / "aliases.csv"
+    aliases_path.write_text(aliases_path.read_text() + "DEMO2,manual,DEMO-SHARE\n")
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
+
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    google_forms.form_sync(seeded_conn)
+
+    symbol_item = _item_in_section(service, "Trade", "Symbol")
+    assert "DEMO2" in [o["value"] for o in _options(symbol_item)]
 
 
 def test_form_sync_preserves_not_listed_routing(seeded_conn, monkeypatch):

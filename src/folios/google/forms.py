@@ -7,7 +7,7 @@ from typing import Any
 import psycopg
 from googleapiclient.discovery import build
 
-from folios import fx, validate
+from folios import fx, seed, validate
 from folios.google.auth import get_credentials
 from folios.validate import REPO_ROOT
 
@@ -614,6 +614,11 @@ def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
     existing form in place — structure, page breaks and routing are
     untouched. Requires form_init to have run first.
 
+    Reconciles config/ into the database first (same as `folios init`)
+    so a hand-edited account/alias/currency is picked up without a
+    separate `folios init` step — config/ is the source of truth, the
+    DB tables this reads from are just a projection of it.
+
     Section-aware (tracks which page each item belongs to) so it can
     rebuild options via the same _choice_options() create_form uses —
     a title match alone can't tell Trade's Symbol (terminal, jumps on
@@ -622,6 +627,8 @@ def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
     state = load_form_state()
     if state is None:
         raise FormNotInitializedError
+
+    seed.seed(conn)
 
     service = build_forms_service()
     form = service.forms().get(formId=state["form_id"]).execute()

@@ -55,14 +55,29 @@ non-zero if any step reported an error:
 
 ## When you edit `config/` by hand
 
-(new account, a new dimension code, correcting a value)
+(new account, a new alias, a new dimension code, correcting a value)
 
-- `folios init` reconciles the change into the database.
-- `folios form-sync` refreshes the *live* Form's dropdowns to match —
-  but only `Account`/`Symbol`/`Currency` today. `Asset class`/`Region`/
-  `Sector`/etc. aren't refreshed by `form-sync` (a pre-existing gap,
-  not something recent); a genuinely new dimension code there needs a
-  fresh `folios form-init` to actually appear as a Form choice.
+- `folios init` reconciles the change into the database — needed for
+  everything downstream of the database (loader, valuations, Metabase),
+  and still worth running for its migration check.
+- `folios form-sync` refreshes the *live* Form's `Account`/`Symbol`/
+  `Currency` dropdowns to match. It reconciles config/ into the
+  database itself first, so a hand-edited account/alias/currency shows
+  up on the Form even without a prior `folios init`. `Asset class`/
+  `Region`/`Sector`/etc. aren't refreshed by `form-sync` (a
+  pre-existing gap, not something recent); a genuinely new dimension
+  code there needs a fresh `folios form-init` to actually appear as a
+  Form choice.
+
+## The last page of an entry
+
+The Form's "Next" button on the last page of any entry (Trade, Cash,
+Cost, ...) actually submits — Google Forms always labels
+branch-dependent navigation "Next", even when the answer you picked
+resolves to submitting the form. The screen you land on right after is
+the confirmation page, not a second required step; there's no separate
+"Submit" tap. (This is a Google Forms client quirk, not a folios bug —
+the API's page-break items carry no navigation field to override it.)
 
 ## Checking it worked
 

@@ -418,6 +418,10 @@ def form_sync() -> None:
         except google_forms.FormNotInitializedError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
+        except seed.SeedValidationError as exc:
+            for error in exc.errors:
+                typer.echo(error, err=True)
+            raise typer.Exit(code=1) from exc
     finally:
         conn.close()
     typer.echo(f"Updated {result['updated_items']} dropdown field(s) on form {result['form_id']}")
