@@ -55,6 +55,12 @@ class Field:
     # Fixed dropdown values not tracked in core.dimensions (e.g. a plain
     # true/false), taking precedence over `dimension` when set.
     choices: tuple[str, ...] | None = None
+    # Restricts a `dimension` field's choices to this subset (e.g.
+    # instrument_type on a Fund/Crypto subtype page), while still sourcing
+    # the actual codes/labels/order from config/dimensions.csv — so an
+    # added code still shows up once it's added to the relevant filter
+    # tuple, instead of going stale like a hardcoded `choices` tuple would.
+    dimension_filter: tuple[str, ...] | None = None
     # dropdown value -> target section KEY (resolved to a section id via
     # section_ids), for a field that branches like Type/Symbol do — e.g.
     # Asset class routing into a Fund/Bond/Crypto-only continuation page.
@@ -135,6 +141,16 @@ SECTIONS: list[tuple[str, str, list[str], list[Field]]] = [
     ),
 ]
 
+# asset_class -> the instrument_type codes valid for it. EQUITY/BOND each
+# have exactly one (SHARE/BOND) and are defaulted server-side instead of
+# asked (see new_instrument.DEFAULT_INSTRUMENT_TYPE_BY_ASSET_CLASS) — only
+# FUND/CRYPTO have a real choice to make, so only their subtype pages ask
+# for it, filtered to just their valid codes.
+INSTRUMENT_TYPES_BY_ASSET_CLASS: dict[str, tuple[str, ...]] = {
+    "FUND": ("UCITS", "AIF", "OTHER", "ETF", "ETC", "ETN"),
+    "CRYPTO": ("COIN", "RWA"),
+}
+
 NEW_INSTRUMENT_SECTION = (
     "new_instrument", "New instrument", [],
     [
@@ -148,7 +164,11 @@ NEW_INSTRUMENT_SECTION = (
         # config/exposure_mapping.csv at creation time (see
         # new_instrument.YFinanceInfoProvider); region was dropped
         # entirely (migrations/010).
-        Field("Instrument type", "dropdown", dimension="instrument_type", required=False),
+        #
+        # Instrument type used to be asked here, before Asset class was
+        # even chosen — every one of its 10 codes shown regardless of
+        # relevance. It now lives on each subtype continuation page below,
+        # filtered to the codes that asset class actually allows.
         Field("Issuer", "text", required=False),
         Field("Protection type", "dropdown", dimension="protection_type", required=False),
         Field("PEA eligible", "dropdown", choices=("true", "false"), required=False),
@@ -158,7 +178,6 @@ NEW_INSTRUMENT_SECTION = (
         Field(
             "Asset class", "dropdown", dimension="asset_class", terminal=True,
             route_by_value={
-                "ETP": "new_instrument_fund",
                 "FUND": "new_instrument_fund",
                 "BOND": "new_instrument_bond",
                 "CRYPTO": "new_instrument_crypto",
@@ -167,27 +186,31 @@ NEW_INSTRUMENT_SECTION = (
     ],
 )
 
-# Only legal_structure (Fund/ETP) and chain (Crypto) are DB NOT NULL —
-# everything else here is optional, straight from config/example/FIELDS.md's
-# instruments_fund.csv/instruments_bond.csv/instruments_crypto.csv tables.
-# None of these are core.dimensions-tracked (FIELDS.md never marks them
-# "*Dimension.*"), so enum-shaped ones use `choices`, not `dimension`.
+# chain (Crypto) is the only other subtype-page field that's DB NOT
+# NULL — everything else here is optional, straight from
+# config/example/FIELDS.md's instruments_fund.csv/instruments_bond.csv/
+# instruments_crypto.csv tables. None of these are core.dimensions-tracked
+# (FIELDS.md never marks them "*Dimension.*"), so enum-shaped ones use
+# `choices`, not `dimension` — except Instrument type below, which is.
 NEW_INSTRUMENT_FUND_SECTION = (
-    "new_instrument_fund", "New instrument — Fund/ETP details", [],
+    "new_instrument_fund", "New instrument — Fund details", [],
     [
         Field(
-            "Legal structure", "dropdown", terminal=True,
-            choices=("UCITS_FUND", "NON_UCITS_FUND", "COLLATERALISED_NOTE",
-                     "UNSECURED_NOTE", "SCPI"),
+            "Instrument type", "dropdown", dimension="instrument_type",
+            dimension_filter=INSTRUMENT_TYPES_BY_ASSET_CLASS["FUND"],
         ),
-        Field("UCITS", "dropdown", required=False, choices=("true", "false")),
+        # This page's sole navigator now that Legal structure is gone —
+        # forced required for the same reason Bond's "Is callable" /
+        # Crypto's "Is stablecoin" are: nothing else on the page is
+        # guaranteed answered, and this isn't the form's last section.
+        Field("UCITS", "dropdown", choices=("true", "false"), terminal=True),
         Field("RHP (years)", "number", required=False),
         # Distribution policy, Ongoing charges, Replication method and
-        # Benchmark index are no longer asked here — for ETP with an ISIN,
-        # they're auto-fetched from justETF's "basics" tab at creation
-        # time (exposure.StockdexExposureProvider.fetch_basics /
-        # parse_basics) and kept fresh by `folios exposure --refresh`.
-        # They stay manual for a non-listed FUND (not on justETF).
+        # Benchmark index are no longer asked here — for an ETF/ETC/ETN
+        # with an ISIN, they're auto-fetched from justETF's "basics" tab
+        # at creation time (exposure.StockdexExposureProvider.fetch_basics
+        # / parse_basics) and kept fresh by `folios exposure --refresh`.
+        # They stay manual for a non-listed fund (not on justETF).
         Field("SRI", "number", required=False),
         Field("Swap counterparty", "text", required=False),
         Field("Uses securities lending", "dropdown", required=False, choices=("true", "false")),
@@ -235,6 +258,10 @@ NEW_INSTRUMENT_BOND_SECTION = (
 NEW_INSTRUMENT_CRYPTO_SECTION = (
     "new_instrument_crypto", "New instrument — Crypto details", [],
     [
+        Field(
+            "Instrument type", "dropdown", dimension="instrument_type",
+            dimension_filter=INSTRUMENT_TYPES_BY_ASSET_CLASS["CRYPTO"],
+        ),
         Field("Chain", "text"),  # DB NOT NULL — required
         Field("Contract address", "text", required=False),
         Field("Token standard", "text", required=False),
@@ -284,6 +311,19 @@ def dimension_codes(conn: psycopg.Connection, dimension: str) -> list[str]:
     matches = [row for row in rows if row["dimension"] == dimension]
     matches.sort(key=lambda row: (int(row.get("sort_order") or 0), row["code"]))
     return [row["code"] for row in matches]
+
+
+def _field_dimension_codes(conn: psycopg.Connection, field: Field) -> list[str]:
+    """dimension_codes(), restricted to field.dimension_filter when set —
+    still sourced from config/dimensions.csv (order and all), just a
+    subset of it. Shared by _field_request (create_form) and form_sync so
+    a page like new_instrument_fund's Instrument type field can't drift
+    between the two build paths."""
+    codes = dimension_codes(conn, field.dimension)
+    if field.dimension_filter is None:
+        return codes
+    allowed = set(field.dimension_filter)
+    return [code for code in codes if code in allowed]
 
 
 def account_choices(config_dir: Path | None = None) -> list[str]:
@@ -444,8 +484,10 @@ def _field_request(
     elif field.kind == "date":
         question["dateQuestion"] = {"includeYear": True}
     elif field.kind == "dropdown":
-        codes = list(field.choices) if field.choices is not None else dimension_codes(
-            conn, field.dimension
+        codes = (
+            list(field.choices)
+            if field.choices is not None
+            else _field_dimension_codes(conn, field)
         )
         goto = (
             {value: section_ids[key] for value, key in field.route_by_value.items()}
@@ -706,11 +748,10 @@ def form_sync(conn: psycopg.Connection) -> dict[str, Any]:
         else:
             field = field_by_section.get((current_section_title, title))
             if field is None or field.dimension is None:
-                # Fixed-choice dropdowns (e.g. Legal structure, Is
-                # callable) aren't sourced from config/ at all — nothing
-                # to refresh.
+                # Fixed-choice dropdowns (e.g. Is callable) aren't sourced
+                # from config/ at all — nothing to refresh.
                 continue
-            codes = dimension_codes(conn, field.dimension)
+            codes = _field_dimension_codes(conn, field)
             goto = (
                 {value: section_ids[key] for value, key in field.route_by_value.items()}
                 if field.route_by_value

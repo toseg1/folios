@@ -203,7 +203,7 @@ def test_v_risk_profile_is_a_distribution_not_an_average(worked_example_conn):
 
 def test_v_wrapper_risk_direct_holding_fallback(worked_example_conn):
     rows = {
-        r["legal_structure"]: r["value_base"]
+        r["wrapper_risk"]: r["value_base"]
         for r in _rows(worked_example_conn, "SELECT * FROM marts.v_wrapper_risk")
     }
     assert rows["DIRECT_HOLDING"] == Decimal("300.00000000000000000000000000")
@@ -227,7 +227,7 @@ def test_v_wrapper_risk_ucits_fund(worked_example_conn):
     worked_example_conn.commit()
 
     rows = {
-        r["legal_structure"]: r["value_base"]
+        r["wrapper_risk"]: r["value_base"]
         for r in _rows(worked_example_conn, "SELECT * FROM marts.v_wrapper_risk")
     }
     assert rows["UCITS_FUND"] == Decimal("1000.00000000000000000000000000")

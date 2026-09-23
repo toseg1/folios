@@ -183,9 +183,9 @@ def test_symbol_choices_excludes_aliases_of_inactive_instruments(
     instruments_path = config_copy / "instruments.csv"
     instruments_path.write_text(
         instruments_path.read_text().replace(
-            "WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,ETP,ETN,EUR,,,,WisdomTree,GB,"
+            "WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,FUND,ETN,EUR,,,,WisdomTree,GB,"
             "MARKET_EXPOSED,false,manual,true",
-            "WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,ETP,ETN,EUR,,,,WisdomTree,GB,"
+            "WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,FUND,ETN,EUR,,,,WisdomTree,GB,"
             "MARKET_EXPOSED,false,manual,false",
         )
     )
@@ -337,7 +337,6 @@ def test_form_sync_refreshes_dimension_backed_dropdowns_beyond_account_symbol_cu
     dimensions_path.write_text(
         dimensions_path.read_text()
         + "asset_class,COMMODITY,Commodity,60\n"
-        "instrument_type,FUTURE,Future,110\n"
         "protection_type,CAPITAL_GUARANTEED,Capital guaranteed,20\n"
     )
     monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
@@ -349,8 +348,11 @@ def test_form_sync_refreshes_dimension_backed_dropdowns_beyond_account_symbol_cu
         return [o["value"] for o in _options(item)]
 
     assert "COMMODITY" in values("Asset class")
-    assert "FUTURE" in values("Instrument type")
     assert "CAPITAL_GUARANTEED" in values("Protection type")
+    # Instrument type moved to the Fund/Crypto subtype pages and is
+    # filtered by INSTRUMENT_TYPES_BY_ASSET_CLASS there — see
+    # test_form_sync_drops_dimension_codes_removed_from_config for its
+    # own config-driven-refresh coverage.
 
 
 def test_form_sync_refreshes_peg_currency_despite_its_title_not_being_currency(
@@ -380,7 +382,7 @@ def test_form_sync_preserves_asset_class_routing_after_refresh(seeded_conn, monk
     def page_break_id(title: str) -> str:
         return next(item["itemId"] for item in service.items if item.get("title") == title)
 
-    fund_page_id = page_break_id("New instrument — Fund/ETP details")
+    fund_page_id = page_break_id("New instrument — Fund details")
     bond_page_id = page_break_id("New instrument — Bond details")
     crypto_page_id = page_break_id("New instrument — Crypto details")
 
@@ -390,7 +392,6 @@ def test_form_sync_preserves_asset_class_routing_after_refresh(seeded_conn, monk
         o["value"]: o
         for o in _options(_item_in_section(service, "New instrument", "Asset class"))
     }
-    assert asset_class_options["ETP"]["goToSectionId"] == fund_page_id
     assert asset_class_options["FUND"]["goToSectionId"] == fund_page_id
     assert asset_class_options["BOND"]["goToSectionId"] == bond_page_id
     assert asset_class_options["CRYPTO"]["goToSectionId"] == crypto_page_id
@@ -453,10 +454,12 @@ def test_form_sync_drops_dimension_codes_removed_from_config(seeded_conn, monkey
         )
         assert cur.fetchone() is not None, "sanity: seed() must not have deleted the stale row"
 
-    instrument_type_item = _item_in_section(service, "New instrument", "Instrument type")
+    instrument_type_item = _item_in_section(
+        service, "New instrument — Fund details", "Instrument type"
+    )
     instrument_type_values = [o["value"] for o in _options(instrument_type_item)]
     assert "ETC" not in instrument_type_values
-    assert "SHARE" in instrument_type_values
+    assert "ETF" in instrument_type_values
 
 
 def test_form_sync_drops_accounts_removed_from_config(seeded_conn, monkeypatch, tmp_path):
@@ -648,11 +651,10 @@ def test_asset_class_routes_to_the_right_subtype_page_or_submits_directly(seeded
         for o in _options(_item_in_section(service, "New instrument", "Asset class"))
     }
 
-    fund_page_id = page_break_id("New instrument — Fund/ETP details")
+    fund_page_id = page_break_id("New instrument — Fund details")
     bond_page_id = page_break_id("New instrument — Bond details")
     crypto_page_id = page_break_id("New instrument — Crypto details")
 
-    assert asset_class_options["ETP"]["goToSectionId"] == fund_page_id
     assert asset_class_options["FUND"]["goToSectionId"] == fund_page_id
     assert asset_class_options["BOND"]["goToSectionId"] == bond_page_id
     assert asset_class_options["CRYPTO"]["goToSectionId"] == crypto_page_id
@@ -667,7 +669,7 @@ def test_new_instrument_landing_page_has_only_asset_class_as_navigator(seeded_co
     google_forms.create_form(seeded_conn, service)
 
     for label in (
-        "Currency", "Instrument type", "Protection type", "PEA eligible",
+        "Currency", "Protection type", "PEA eligible",
     ):
         options = _options(_item_in_section(service, "New instrument", label))
         assert all(
@@ -683,11 +685,11 @@ def test_fund_bond_crypto_pages_each_have_exactly_one_terminal_field(seeded_conn
     google_forms.create_form(seeded_conn, service)
 
     cases = [
-        ("New instrument — Fund/ETP details", "Legal structure",
-         ["UCITS", "Uses securities lending", "SFDR article"]),
+        ("New instrument — Fund details", "UCITS",
+         ["Instrument type", "Uses securities lending", "SFDR article"]),
         ("New instrument — Bond details", "Is callable",
          ["Coupon frequency", "Issuer type", "Seniority"]),
-        ("New instrument — Crypto details", "Is stablecoin", ["Consensus"]),
+        ("New instrument — Crypto details", "Is stablecoin", ["Instrument type", "Consensus"]),
     ]
     for section_title, terminal_label, plain_labels in cases:
         terminal_options = _options(_item_in_section(service, section_title, terminal_label))

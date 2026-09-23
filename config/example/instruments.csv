@@ -1,12 +1,12 @@
 instrument_id,isin,yf_symbol,ticker,name,asset_class,instrument_type,currency,sector,industry,description,issuer,domicile_country,protection_type,is_pea_eligible,price_source,is_active
 DEMO-SHARE,FR0000000001,DEMO.PA,DEMO,Demo Corp,EQUITY,SHARE,EUR,TECHNOLOGY,SOFTWARE,Demo Corp designs and sells enterprise software.,,FR,MARKET_EXPOSED,true,yfinance,true
-DEMO-ETF-WORLD,IE00000000ET,DEMW.PA,DEMW,Demo World ETF,ETP,ETF,EUR,DIVERSIFIED,,Tracks a broad global equity index.,Demo Issuer,IE,MARKET_EXPOSED,true,yfinance,true
+DEMO-ETF-WORLD,IE00000000ET,DEMW.PA,DEMW,Demo World ETF,FUND,ETF,EUR,DIVERSIFIED,,Tracks a broad global equity index.,Demo Issuer,IE,MARKET_EXPOSED,true,yfinance,true
 DEMO-FUND-BOND,FR0000000002,,,Demo Bond Fund,FUND,UCITS,EUR,DIVERSIFIED,,,Demo AM,FR,MARKET_EXPOSED,false,manual,true
 DEMO-BOND-2030,FR0000000003,,,Demo Govt Bond 2030,BOND,BOND,EUR,,,,French Treasury,FR,MARKET_EXPOSED,false,manual,true
 DEMO-CRYPTO-BTC,,BTC-EUR,BTC,Bitcoin,CRYPTO,COIN,EUR,,,,,,MARKET_EXPOSED,,yfinance,true
-DEMO-ETN-GOLD,DE0000000004,,,Demo Gold ETN,ETP,ETN,EUR,,,,Demo Bank,DE,MARKET_EXPOSED,false,manual,true
+DEMO-ETN-GOLD,DE0000000004,,,Demo Gold ETN,FUND,ETN,EUR,,,,Demo Bank,DE,MARKET_EXPOSED,false,manual,true
 BNP-PA,FR0000131104,BNP.PA,BNP,BNP Paribas,EQUITY,SHARE,EUR,FINANCE,BANKS,French multinational bank and financial services group.,,FR,MARKET_EXPOSED,true,yfinance,true
-CSX5-AS,IE00B53L3W79,CSX5.AS,CSX5,iShares Core EURO STOXX 50 UCITS ETF EUR (Acc),ETP,ETF,EUR,DIVERSIFIED,,Tracks the EURO STOXX 50 index of large-cap eurozone equities.,iShares,IE,MARKET_EXPOSED,true,yfinance,true
-WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,ETP,ETN,EUR,,,,WisdomTree,GB,MARKET_EXPOSED,false,manual,true
+CSX5-AS,IE00B53L3W79,CSX5.AS,CSX5,iShares Core EURO STOXX 50 UCITS ETF EUR (Acc),FUND,ETF,EUR,DIVERSIFIED,,Tracks the EURO STOXX 50 index of large-cap eurozone equities.,iShares,IE,MARKET_EXPOSED,true,yfinance,true
+WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,FUND,ETN,EUR,,,,WisdomTree,GB,MARKET_EXPOSED,false,manual,true
 AMUNDI-PATRIMOINE,,,,Amundi Patrimoine C,FUND,UCITS,EUR,DIVERSIFIED,,,Amundi,FR,MARKET_EXPOSED,false,manual,true
 OAT-2032,,,,French OAT 2032,BOND,BOND,EUR,,,,Agence France Trésor,FR,MARKET_EXPOSED,false,manual,true

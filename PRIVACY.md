@@ -23,9 +23,9 @@ of any kind.
 
 ## justETF, via `stockdex` (`folios exposure --refresh`)
 
-Sends only a held ETP's ISIN, to fetch its public country/sector
-breakdown from justETF's own page. Non-fatal on failure: the last
-stored snapshot stays in place, nothing else in `folios sync` is
+Sends only a held exchange-traded fund's ISIN, to fetch its public
+country/sector breakdown from justETF's own page. Non-fatal on failure:
+the last stored snapshot stays in place, nothing else in `folios sync` is
 affected.
 
 ## Google (Forms, Sheets, Drive)

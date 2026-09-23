@@ -109,7 +109,7 @@ def _buy(conn, instrument_id, entry_suffix, quantity=1):
 
 def test_etps_held_only_currently_held_etps(seeded_conn):
     _buy(seeded_conn, "DEMO-ETF-WORLD", 1)
-    _buy(seeded_conn, "DEMO-SHARE", 2)  # not an ETP, must not appear
+    _buy(seeded_conn, "DEMO-SHARE", 2)  # not an exchange-traded fund, must not appear
     held = {row["instrument_id"] for row in etps_held(seeded_conn)}
     assert held == {"DEMO-ETF-WORLD"}
 
@@ -213,7 +213,7 @@ def test_refresh_exposure_skips_unsecured_note_with_a_reason(seeded_conn):
     assert result.refreshed == []
     assert len(result.skipped) == 1
     assert "DEMO-ETN-GOLD" in result.skipped[0]
-    assert "UNSECURED_NOTE" in result.skipped[0]
+    assert "is_ucits=False" in result.skipped[0]
 
 
 def test_refresh_exposure_second_run_same_day_is_a_noop(seeded_conn):
@@ -292,12 +292,12 @@ def test_parse_basics_matches_confirmed_live_shape():
 
 def test_parse_basics_never_reads_justetfs_own_legal_structure_field():
     # justETF's "Legal structure" ("ETF") is the wrapper-type concept
-    # (instrument_type), not the structural question our own
-    # instrument_fund.legal_structure answers — parse_basics must not
-    # even look at it.
+    # this schema already calls instrument_type — parse_basics must not
+    # read it into anything.
     mapping = load_exposure_mapping(EXPOSURE_MAPPING)
     parsed = parse_basics(EUNL_BASICS_RAW, mapping, [])
     assert "legal_structure" not in parsed
+    assert "instrument_type" not in parsed
 
 
 def test_parse_basics_unmapped_domicile_leaves_blank_and_warns():
@@ -321,10 +321,10 @@ def test_store_basics_updates_fund_and_instrument_columns_without_touching_manua
 
     with seeded_conn.cursor() as cur:
         cur.execute(
-            "SELECT ongoing_charges, fund_currency, legal_structure, custodian "
+            "SELECT ongoing_charges, fund_currency, custodian "
             "FROM core.instrument_fund WHERE instrument_id = 'DEMO-ETF-WORLD'"
         )
-        ongoing_charges, fund_currency, legal_structure, custodian = cur.fetchone()
+        ongoing_charges, fund_currency, custodian = cur.fetchone()
         cur.execute(
             "SELECT currency, domicile_country, issuer FROM core.instruments "
             "WHERE instrument_id = 'DEMO-ETF-WORLD'"
@@ -338,8 +338,7 @@ def test_store_basics_updates_fund_and_instrument_columns_without_touching_manua
     assert currency == "EUR"
     assert domicile_country == "IE"
     assert issuer == "iShares"
-    # legal_structure/custodian are manual — untouched by store_basics.
-    assert legal_structure == "UCITS_FUND"
+    # custodian is manual — untouched by store_basics.
     assert custodian == "Demo Depositary Bank"
 
 

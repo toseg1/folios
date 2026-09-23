@@ -94,11 +94,8 @@ def map_or_unmapped(
 
 # justETF's own "Legal structure" field (e.g. "ETF") is deliberately never
 # parsed here — it's the wrapper-type concept folios already calls
-# instrument_type, typed manually at creation, not the deeper structural
-# question instrument_fund.legal_structure answers (UCITS_FUND vs.
-# UNSECURED_NOTE vs. SCPI — what you actually own if the issuer fails).
-# Different questions that happen to share a label; conflating them would
-# silently overwrite a structurally load-bearing manual field.
+# instrument_type, typed manually at creation. Not to be confused with
+# is_ucits, the coarser "is this ring-fenced" signal instrument_fund keeps.
 _REPLICATION_LABELS = {
     "physical (full replication)": "PHYSICAL_FULL",
     "physical (optimized sampling)": "PHYSICAL_SAMPLED",
@@ -227,26 +224,28 @@ def parse_basics(
 
 
 def etps_held(conn: psycopg.Connection) -> list[dict[str, Any]]:
-    """Currently-held ETP instruments (asset_class=ETP), with isin and
-    legal_structure — what determines whether look-through applies."""
+    """Currently-held exchange-traded fund instruments
+    (instrument_type IN ETF/ETC/ETN — the only remaining signal now that
+    asset_class no longer distinguishes ETP from FUND), with isin and
+    is_ucits — what determines whether look-through applies."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT i.instrument_id, i.isin, f.legal_structure,
+            SELECT i.instrument_id, i.isin, f.is_ucits,
                    COALESCE(SUM(t.quantity), 0) AS position
             FROM core.instruments i
             LEFT JOIN core.instrument_fund f ON f.instrument_id = i.instrument_id
             LEFT JOIN core.transactions t
                 ON t.instrument_id = i.instrument_id
                AND t.txn_type = ANY(%s)
-            WHERE i.asset_class = 'ETP'
-            GROUP BY i.instrument_id, i.isin, f.legal_structure
+            WHERE i.instrument_type IN ('ETF', 'ETC', 'ETN')
+            GROUP BY i.instrument_id, i.isin, f.is_ucits
             HAVING COALESCE(SUM(t.quantity), 0) > 0
             """,
             (list(QUANTITY_SIGN),),
         )
         return [
-            {"instrument_id": r[0], "isin": r[1], "legal_structure": r[2]}
+            {"instrument_id": r[0], "isin": r[1], "is_ucits": r[2]}
             for r in cur.fetchall()
         ]
 
@@ -364,7 +363,7 @@ def store_basics(conn: psycopg.Connection, instrument_id: str, parsed: dict[str,
     row and the instrument's own domicile_country/issuer — COALESCEd
     against the current value so a field the fetch didn't return (or
     couldn't map, e.g. an unmapped domicile) never clobbers a previously
-    good value with NULL. Never touches legal_structure, rhp_years, sri,
+    good value with NULL. Never touches is_ucits, rhp_years, sri,
     custodian, sfdr_article, justetf_id, or the SCPI-only fields — those
     stay manual."""
     params = {"instrument_id": instrument_id, **parsed}
@@ -399,9 +398,9 @@ def refresh_exposure(
     for row in etps_held(conn):
         instrument_id = row["instrument_id"]
 
-        if row["legal_structure"] != "UCITS_FUND":
+        if not row["is_ucits"]:
             result.skipped.append(
-                f"{instrument_id}: legal_structure={row['legal_structure']!r} "
+                f"{instrument_id}: is_ucits={row['is_ucits']!r} "
                 f"has no holdings to look through"
             )
             continue

@@ -19,7 +19,6 @@ custody_type,INSURER,Insurer,30
 custody_type,EXCHANGE,Exchange,40
 custody_type,SELF_CUSTODY,Self custody,50
 asset_class,EQUITY,Equity,10
-asset_class,ETP,Exchange-traded product,20
 asset_class,FUND,Fund,30
 asset_class,BOND,Bond,40
 asset_class,CRYPTO,Crypto asset,50
