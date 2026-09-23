@@ -1,7 +1,7 @@
-instrument_id,legal_structure,is_ucits,rhp_years,distribution_policy,ongoing_charges,sri,replication_method,swap_counterparty,uses_sec_lending,custodian,sfdr_article,benchmark_index,justetf_id,subscription_price,withdrawal_price,management_company,property_sector,occupancy_rate,distribution_rate,investment_focus,fund_size,investment_approach,sustainability,currency_risk,fund_currency,volatility_1y_eur,inception_date,distribution_frequency
-DEMO-ETF-WORLD,UCITS_FUND,true,5,ACCUMULATING,0.0020,4,PHYSICAL_SAMPLED,,false,Demo Depositary Bank,8,MSCI World,IE00000000ET,,,,,,,"Equity, World",127272000000,Long-only,No,Currency unhedged,USD,0.107300,2009-09-25,
-DEMO-FUND-BOND,UCITS_FUND,true,3,DISTRIBUTING,0.0045,2,PHYSICAL_FULL,,false,Demo Depositary Bank,6,,,,,,,,,,,,,,,,,
-DEMO-ETN-GOLD,UNSECURED_NOTE,false,,,0.0035,5,,,false,,,,,,,,,,,,,,,,,,,
-CSX5-AS,UCITS_FUND,true,5,ACCUMULATING,0.0010,4,PHYSICAL_FULL,,true,State Street Bank,8,EURO STOXX 50,,,,,,,,"Equity, Eurozone",5500000000,Long-only,No,Currency unhedged,EUR,0.145000,2010-02-25,
-WISDOMTREE-GOLD,UNSECURED_NOTE,false,,,0.0039,5,,,false,,,,,,,,,,,,,,,,,,,
-AMUNDI-PATRIMOINE,UCITS_FUND,true,3,ACCUMULATING,0.0180,3,,,false,CACEIS Bank,8,,,,,,,,,"Diversified allocation, Europe",,Active,,,EUR,,,
+instrument_id,is_ucits,rhp_years,distribution_policy,ongoing_charges,sri,replication_method,swap_counterparty,uses_sec_lending,custodian,sfdr_article,benchmark_index,justetf_id,subscription_price,withdrawal_price,management_company,property_sector,occupancy_rate,distribution_rate,investment_focus,fund_size,investment_approach,sustainability,currency_risk,fund_currency,volatility_1y_eur,inception_date,distribution_frequency
+DEMO-ETF-WORLD,true,5,ACCUMULATING,0.0020,4,PHYSICAL_SAMPLED,,false,Demo Depositary Bank,8,MSCI World,IE00000000ET,,,,,,,"Equity, World",127272000000,Long-only,No,Currency unhedged,USD,0.107300,2009-09-25,
+DEMO-FUND-BOND,true,3,DISTRIBUTING,0.0045,2,PHYSICAL_FULL,,false,Demo Depositary Bank,6,,,,,,,,,,,,,,,,,
+DEMO-ETN-GOLD,false,,,0.0035,5,,,false,,,,,,,,,,,,,,,,,,,
+CSX5-AS,true,5,ACCUMULATING,0.0010,4,PHYSICAL_FULL,,true,State Street Bank,8,EURO STOXX 50,,,,,,,,"Equity, Eurozone",5500000000,Long-only,No,Currency unhedged,EUR,0.145000,2010-02-25,
+WISDOMTREE-GOLD,false,,,0.0039,5,,,false,,,,,,,,,,,,,,,,,,,
+AMUNDI-PATRIMOINE,true,3,ACCUMULATING,0.0180,3,,,false,CACEIS Bank,8,,,,,,,,,"Diversified allocation, Europe",,Active,,,EUR,,,

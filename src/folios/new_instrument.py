@@ -27,7 +27,7 @@ ALIAS_CSV_COLUMNS = ("alias", "source", "instrument_id")
 # _INSTRUMENT_BOND_COLUMNS / _INSTRUMENT_CRYPTO_COLUMNS — same "each file owns
 # its own shape" convention as above.
 FUND_CSV_COLUMNS = (
-    "instrument_id", "legal_structure", "is_ucits", "rhp_years",
+    "instrument_id", "is_ucits", "rhp_years",
     "distribution_policy", "ongoing_charges", "sri", "replication_method",
     "swap_counterparty", "uses_sec_lending", "custodian", "sfdr_article",
     "benchmark_index", "justetf_id", "subscription_price", "withdrawal_price",
@@ -47,6 +47,13 @@ CRYPTO_CSV_COLUMNS = (
 
 REQUIRED_NEW_INSTRUMENT_FIELDS = ("Name", "Yahoo ticker", "Asset class", "Currency")
 
+# EQUITY and BOND each have exactly one valid instrument_type code (SHARE,
+# BOND) — the form doesn't ask for it on those asset classes, so it's
+# defaulted here rather than left blank. FUND/CRYPTO have several valid
+# codes (see google/forms.py's INSTRUMENT_TYPES_BY_ASSET_CLASS) and are
+# always asked on their own subtype page.
+DEFAULT_INSTRUMENT_TYPE_BY_ASSET_CLASS = {"EQUITY": "SHARE", "BOND": "BOND"}
+
 
 class YFinanceTickerValidator:
     """The empty-result-is-a-hard-error probe from build-plan step 16: a
@@ -64,9 +71,10 @@ class YFinanceTickerValidator:
 class YFinanceInfoProvider:
     """Best-effort auto-population of sector/industry/country/description
     for EQUITY, from yfinance's .info dict — a stable, well-documented
-    field set. NOT used for ETP/FUND: the equivalent justETF fields come
-    from exposure.StockdexExposureProvider.fetch_basics() instead (its own
-    accessor, confirmed live and wired in the ETP branch below)."""
+    field set. NOT used for exchange-traded funds/notes: the equivalent
+    justETF fields come from exposure.StockdexExposureProvider.fetch_basics()
+    instead (its own accessor, confirmed live and wired in the ETF/ETC/ETN
+    branch below)."""
 
     def fetch_info(self, ticker: str) -> dict[str, Any]:
         try:
@@ -186,26 +194,29 @@ def create_from_form_fields(
     alias = f"{fields['Name'].strip()} - {instrument_id}"
 
     asset_class = fields["Asset class"].strip()
+    instrument_type = fields.get("Instrument type") or DEFAULT_INSTRUMENT_TYPE_BY_ASSET_CLASS.get(
+        asset_class, ""
+    )
 
     # Sector/industry/country/description are no longer typed by hand —
     # for EQUITY they're fetched from yfinance's .info and mapped through
-    # config/exposure_mapping.csv, same convention as ETP look-through
-    # exposure already uses. Any other asset class (BOND/CRYPTO/a
-    # non-listed FUND) has no automatable source for these, so they stay
-    # unset unless a caller passes them in `fields` directly (e.g. a
-    # future non-phone entry path).
+    # config/exposure_mapping.csv, same convention as ETF/ETC/ETN
+    # look-through exposure already uses. Any other asset class
+    # (BOND/CRYPTO/a non-listed FUND) has no automatable source for these,
+    # so they stay unset unless a caller passes them in `fields` directly
+    # (e.g. a future non-phone entry path).
     enrichment_warnings: list[str] = []
     sector = fields.get("Sector") or ""
     industry = ""
     description = ""
     domicile_country = fields.get("Domicile country") or ""
     issuer = fields.get("Issuer") or ""
-    # Populated for ETP below, then merged into fund_row further down —
-    # every instrument_fund column justETF's "basics" tab can supply
-    # (investment_focus, fund_size, ongoing_charges, replication_method,
-    # investment_approach, sustainability, fund_currency, currency_risk,
-    # volatility_1y_eur, inception_date, benchmark_index,
-    # distribution_policy, distribution_frequency).
+    # Populated for ETF/ETC/ETN below, then merged into fund_row further
+    # down — every instrument_fund column justETF's "basics" tab can
+    # supply (investment_focus, fund_size, ongoing_charges,
+    # replication_method, investment_approach, sustainability,
+    # fund_currency, currency_risk, volatility_1y_eur, inception_date,
+    # benchmark_index, distribution_policy, distribution_frequency).
     fund_auto: dict[str, Any] = {}
     if asset_class == "EQUITY":
         info_provider = info_provider or YFinanceInfoProvider()
@@ -223,7 +234,7 @@ def create_from_form_fields(
             or domicile_country
         )
         description = info.get("longBusinessSummary") or ""
-    elif asset_class == "ETP":
+    elif instrument_type in {"ETF", "ETC", "ETN"}:
         isin = fields.get("ISIN") or ""
         if not isin:
             enrichment_warnings.append(
@@ -249,7 +260,7 @@ def create_from_form_fields(
         "ticker": fields.get("Ticker") or "",
         "name": fields["Name"].strip(),
         "asset_class": asset_class,
-        "instrument_type": fields.get("Instrument type") or "",
+        "instrument_type": instrument_type,
         "currency": fields["Currency"].strip(),
         "sector": sector,
         "industry": industry,
@@ -275,7 +286,6 @@ def create_from_form_fields(
 
         fund_row = {
             "instrument_id": instrument_id,
-            "legal_structure": fields.get("Legal structure") or "",
             "is_ucits": fields.get("UCITS") or "",
             "rhp_years": fields.get("RHP (years)") or "",
             "distribution_policy": (
@@ -296,7 +306,7 @@ def create_from_form_fields(
             "property_sector": fields.get("Property sector (SCPI)") or "",
             "occupancy_rate": fields.get("Occupancy rate (SCPI)") or "",
             "distribution_rate": fields.get("Distribution rate (SCPI)") or "",
-            # justETF-sourced, ETP only — auto-fetched via
+            # justETF-sourced, ETF/ETC/ETN only — auto-fetched via
             # exposure.StockdexExposureProvider.fetch_basics() above; manual
             # entry (if ever present in `fields`) always wins.
             "investment_focus": fields.get("Investment focus") or _auto("investment_focus"),

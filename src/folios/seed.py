@@ -24,10 +24,10 @@ INSTRUMENT_DIMENSION_FIELDS = (
 
 # asset_class values that imply a subtype row should exist. The build plan
 # text says "ETF", but ETF is an instrument_type, not an asset_class value
-# (the asset_class enum is EQUITY | ETP | FUND | BOND | CRYPTO) — using ETP
-# here instead is the faithful reading of that rule.
+# (the asset_class enum is EQUITY | FUND | BOND | CRYPTO) — FUND covers
+# both listed (ETF/ETC/ETN) and non-listed wrappers, distinguished by
+# instrument_type, not by a separate asset_class value.
 SUBTYPE_TABLE_BY_ASSET_CLASS = {
-    "ETP": "instrument_fund",
     "FUND": "instrument_fund",
     "BOND": "instrument_bond",
     "CRYPTO": "instrument_crypto",
@@ -185,7 +185,7 @@ _INSTRUMENT_COLUMNS = (
 )
 
 _INSTRUMENT_FUND_COLUMNS = (
-    "instrument_id", "legal_structure", "is_ucits", "rhp_years",
+    "instrument_id", "is_ucits", "rhp_years",
     "distribution_policy", "ongoing_charges", "sri", "replication_method",
     "swap_counterparty", "uses_sec_lending", "custodian", "sfdr_article",
     "benchmark_index", "justetf_id", "subscription_price", "withdrawal_price",
@@ -282,7 +282,7 @@ _INSTRUMENT_SQL = """
 
 _INSTRUMENT_FUND_SQL = """
     INSERT INTO core.instrument_fund (
-        instrument_id, legal_structure, is_ucits, rhp_years,
+        instrument_id, is_ucits, rhp_years,
         distribution_policy, ongoing_charges, sri, replication_method,
         swap_counterparty, uses_sec_lending, custodian, sfdr_article,
         benchmark_index, justetf_id, subscription_price, withdrawal_price,
@@ -291,7 +291,7 @@ _INSTRUMENT_FUND_SQL = """
         currency_risk, fund_currency, volatility_1y_eur, inception_date,
         distribution_frequency
     ) VALUES (
-        %(instrument_id)s, %(legal_structure)s, %(is_ucits)s, %(rhp_years)s,
+        %(instrument_id)s, %(is_ucits)s, %(rhp_years)s,
         %(distribution_policy)s, %(ongoing_charges)s, %(sri)s,
         %(replication_method)s, %(swap_counterparty)s, %(uses_sec_lending)s,
         %(custodian)s, %(sfdr_article)s, %(benchmark_index)s, %(justetf_id)s,
@@ -302,7 +302,6 @@ _INSTRUMENT_FUND_SQL = """
         %(volatility_1y_eur)s, %(inception_date)s, %(distribution_frequency)s
     )
     ON CONFLICT (instrument_id) DO UPDATE SET
-        legal_structure = EXCLUDED.legal_structure,
         is_ucits = EXCLUDED.is_ucits,
         rhp_years = EXCLUDED.rhp_years,
         distribution_policy = EXCLUDED.distribution_policy,

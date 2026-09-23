@@ -195,8 +195,9 @@ def test_create_from_form_fields_writes_no_subtype_row_for_equity(
 def test_create_from_form_fields_writes_fund_subtype_row(seeded_conn, writable_config_dir):
     fields = {
         **NEW_INSTRUMENT_FIELDS,
-        "Asset class": "ETP",
-        "Legal structure": "UCITS_FUND",
+        "Asset class": "FUND",
+        "Instrument type": "ETF",
+        "UCITS": "true",
         "SRI": "4",
     }
     validator = FakeTickerValidator(valid=True)
@@ -207,13 +208,13 @@ def test_create_from_form_fields_writes_fund_subtype_row(seeded_conn, writable_c
 
     assert result.error is None
     fund_csv = (writable_config_dir / "instruments_fund.csv").read_text()
-    assert "NEWCO-PA,UCITS_FUND" in fund_csv
+    assert "NEWCO-PA,true" in fund_csv
     with seeded_conn.cursor() as cur:
         cur.execute(
-            "SELECT legal_structure, sri FROM core.instrument_fund "
+            "SELECT is_ucits, sri FROM core.instrument_fund "
             "WHERE instrument_id = 'NEWCO-PA'"
         )
-        assert cur.fetchone() == ("UCITS_FUND", 4)
+        assert cur.fetchone() == (True, 4)
 
 
 def test_create_from_form_fields_enriches_etp_via_basics_provider(
@@ -221,8 +222,9 @@ def test_create_from_form_fields_enriches_etp_via_basics_provider(
 ):
     fields = {
         **NEW_INSTRUMENT_FIELDS,
-        "Asset class": "ETP",
-        "Legal structure": "UCITS_FUND",
+        "Asset class": "FUND",
+        "Instrument type": "ETF",
+        "UCITS": "true",
         "ISIN": "IE00B4L5Y983",
     }
     validator = FakeTickerValidator(valid=True)
@@ -269,8 +271,9 @@ def test_create_from_form_fields_etp_without_isin_warns_but_still_creates(
 ):
     fields = {
         **NEW_INSTRUMENT_FIELDS,
-        "Asset class": "ETP",
-        "Legal structure": "UCITS_FUND",
+        "Asset class": "FUND",
+        "Instrument type": "ETF",
+        "UCITS": "true",
     }
     validator = FakeTickerValidator(valid=True)
     basics_provider = FakeBasicsProvider(EUNL_BASICS_RAW)

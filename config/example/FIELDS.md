@@ -85,14 +85,14 @@ keyed on the same `instrument_id`.
 | `yf_symbol` | no | The exact string yfinance needs to pull prices when `price_source = yfinance` — often has an exchange suffix outside the US, or a different shape for crypto. Never derived from `ticker`; type it exactly as yfinance expects. | Free text, e.g. `AAPL`, `DEMW.PA`, `BTC-EUR` |
 | `ticker` | no | The plain ticker as quoted on its exchange, for display — distinct from `yf_symbol`. | Free text, e.g. `AAPL`, `DEMW` |
 | `name` | **yes** | Display name. | Free text |
-| `asset_class` | **yes** | *Dimension.* The broad category — also decides whether a subtype row is expected (`ETP`/`FUND` → `instruments_fund.csv`, `BOND` → `instruments_bond.csv`, `CRYPTO` → `instruments_crypto.csv`). Deliberately no `CASH`: cash is derived from transaction sums, never a held instrument. Commodity and Structured Product are out of scope for now. | `EQUITY`, `ETP`, `FUND`, `BOND`, `CRYPTO` |
-| `instrument_type` | no | *Dimension.* The level-2 breakdown within `asset_class` — `EQUITY` → `SHARE`; `BOND` → `BOND`; `FUND` → `UCITS` / `AIF` / `OTHER`; `ETP` → `ETF` / `ETC` / `ETN`; `CRYPTO` → `COIN` / `RWA` (a tokenized real-world asset is a crypto instrument_type, not its own asset_class — it still gets an `instruments_crypto.csv` row, since it lives on a chain like any other token). See `legal_structure` in the fund subtype table for what an ETP/FUND actually *is* underneath — an ETN is not a fund and owns nothing. | `SHARE`, `BOND`, `UCITS`, `AIF`, `OTHER`, `ETF`, `ETC`, `ETN`, `COIN`, `RWA` |
+| `asset_class` | **yes** | *Dimension.* The broad category — also decides whether a subtype row is expected (`FUND` → `instruments_fund.csv`, `BOND` → `instruments_bond.csv`, `CRYPTO` → `instruments_crypto.csv`). Deliberately no `CASH`: cash is derived from transaction sums, never a held instrument. Commodity and Structured Product are out of scope for now. | `EQUITY`, `FUND`, `BOND`, `CRYPTO` |
+| `instrument_type` | no | *Dimension.* The level-2 breakdown within `asset_class`, and the field that actually distinguishes an exchange-traded fund from a non-listed one — `EQUITY` → `SHARE`; `BOND` → `BOND`; `FUND` → `UCITS` / `AIF` / `OTHER` (non-listed) or `ETF` / `ETC` / `ETN` (exchange-traded — look-through and justETF auto-fetch key off this); `CRYPTO` → `COIN` / `RWA` (a tokenized real-world asset is a crypto instrument_type, not its own asset_class — it still gets an `instruments_crypto.csv` row, since it lives on a chain like any other token). | `SHARE`, `BOND`, `UCITS`, `AIF`, `OTHER`, `ETF`, `ETC`, `ETN`, `COIN`, `RWA` |
 | `currency` | **yes** | The instrument's trading/quote currency. | ISO 4217 code |
-| `sector` | no | *Dimension.* **Auto** for EQUITY (yfinance `.info['sector']`) and exchange-traded ETP/FUND (justETF), mapped through `config/exposure_mapping.csv`. Manual, no source for a non-listed FUND/BOND/CRYPTO. Left blank rather than seeded with an unmapped code if the fetched label has no mapping row yet — that shows up as a warning, add the row and re-run. | e.g. `TECHNOLOGY`, `FINANCE`, `DIVERSIFIED` — extend as needed |
+| `sector` | no | *Dimension.* **Auto** for EQUITY (yfinance `.info['sector']`) and an exchange-traded fund (`instrument_type` ETF/ETC/ETN, via justETF), mapped through `config/exposure_mapping.csv`. Manual, no source for a non-listed FUND/BOND/CRYPTO. Left blank rather than seeded with an unmapped code if the fetched label has no mapping row yet — that shows up as a warning, add the row and re-run. | e.g. `TECHNOLOGY`, `FINANCE`, `DIVERSIFIED` — extend as needed |
 | `industry` | no | *Dimension.* Same automation/mapping story as `sector`, one level more specific (yfinance `.info['industry']`). | e.g. `SOFTWARE`, `SEMICONDUCTORS` — extend as needed |
-| `description` | no | Free text, not a dimension. **Auto** for EQUITY (`.info['longBusinessSummary']`) and exchange-traded ETP/FUND (justETF's own description) — a cached paragraph, no mapping involved. | Free text |
-| `issuer` | no | Who issues/manages it. For an ETP/FUND this means the fund provider/management company (e.g. iShares) — distinct from `instruments_fund.csv`'s own `management_company`, which stays SCPI-specific. | Free text |
-| `domicile_country` | no | *Dimension.* Where the instrument is domiciled. **Auto** for EQUITY/exchange-traded ETP/FUND, same mapping story as `sector`. | ISO 3166-1 alpha-2, e.g. `IE`, `FR` — as a `country` dimension code |
+| `description` | no | Free text, not a dimension. **Auto** for EQUITY (`.info['longBusinessSummary']`) and an exchange-traded fund (justETF's own description) — a cached paragraph, no mapping involved. | Free text |
+| `issuer` | no | Who issues/manages it. For a fund this means the fund provider/management company (e.g. iShares) — distinct from `instruments_fund.csv`'s own `management_company`, which stays SCPI-specific. | Free text |
+| `domicile_country` | no | *Dimension.* Where the instrument is domiciled. **Auto** for EQUITY/an exchange-traded fund, same mapping story as `sector`. | ISO 3166-1 alpha-2, e.g. `IE`, `FR` — as a `country` dimension code |
 | `protection_type` | no | *Dimension.* | `GUARANTEED`, `MARKET_EXPOSED`, `PARTIALLY_PROTECTED`, `UNKNOWN` |
 | `is_pea_eligible` | no | Whether it can be held in a French PEA. `NULL`/blank means unknown, shown as such rather than guessed. | `true` / `false` / blank |
 | `price_source` | no, defaults `yfinance` | Where `folios prices` pulls its close price from. Database-enforced, not just a dimension. | `yfinance`, `manual` |
@@ -100,29 +100,27 @@ keyed on the same `instrument_id`.
 
 ## config/instruments_fund.csv
 
-One row per instrument with `asset_class` in `ETP`/`FUND`, keyed on
+One row per instrument with `asset_class = FUND`, keyed on
 `instrument_id`.
 
-**Auto** below means: for an ETP with an ISIN, fetched from justETF's
-"basics" tab (`exposure.StockdexExposureProvider.fetch_basics` +
+**Auto** below means: for an exchange-traded fund (`instrument_type` ETF/
+ETC/ETN) with an ISIN, fetched from justETF's "basics" tab
+(`exposure.StockdexExposureProvider.fetch_basics` +
 `exposure.parse_basics`, confirmed live against a real ISIN) at
 instrument-creation time, and kept current by `folios exposure
---refresh`. A non-listed FUND (OPCVM/SICAV/SCPI) isn't on justETF, so
+--refresh`. A non-listed fund (OPCVM/SICAV/SCPI) isn't on justETF, so
 these stay manual there. Manual entry (if ever present) always wins over
 a fetched value; a fetch that fails or returns nothing never overwrites
 an existing good value (`COALESCE`d against the current row).
 
 justETF's own **"Legal structure"** field (e.g. `"ETF"`) is deliberately
-never consumed — it's the wrapper-type concept this schema already calls
-`instrument_type` (manually set at creation), not the deeper structural
-question `legal_structure` below answers. Same word, different concept;
-conflating them would silently overwrite a structurally load-bearing
-manual field.
+never consumed — it's the same wrapper-type concept this schema already
+calls `instrument_type` (manually set at creation), just duplicated under
+a different name on justETF's side.
 
 | Column | Meaning | Values |
 | --- | --- | --- |
-| `legal_structure` | **The field that decides everything downstream** — what you actually own if the issuer fails. Manual, structurally load-bearing — never auto-derived, including from justETF's own same-named-but-different "Legal structure" field (see above). | `UCITS_FUND` (ETF/OPCVM/SICAV — ring-fenced assets, a custodian, real holdings, look-through applies) : `NON_UCITS_FUND` (a fund, outside UCITS protection) : `COLLATERALISED_NOTE` (most ETCs — debt backed by collateral, not a fund) : `UNSECURED_NOTE` (ETNs — unsecured debt of the issuer, no ring-fenced assets, no custodian; if the issuer fails you're a creditor, not an owner) : `SCPI` (French property vehicle) |
-| `is_ucits` | Whether it's UCITS-compliant. | `true` / `false` |
+| `is_ucits` | Whether it's UCITS-compliant — the one remaining signal for "ring-fenced assets, a custodian, real holdings, look-through applies" (an ETN/ETC/non-UCITS fund/SCPI is `false`; finer distinctions between those live in `instrument_type`, not here). | `true` / `false` |
 | `rhp_years` | Recommended holding period, from the PRIIPs KID. Manual, no automatable source. | Integer years |
 | `distribution_policy` | Whether income is paid out or reinvested. **Auto.** | `ACCUMULATING`, `DISTRIBUTING` |
 | `ongoing_charges` | Annual cost (TER), **as a decimal fraction** — 0.20% is `0.0020`, not `0.20`. **Auto.** | Decimal fraction |
@@ -130,7 +128,7 @@ manual field.
 | `replication_method` | How the fund tracks its index. **Auto** — justETF's own free-text label (e.g. `"Physical (Optimized sampling)"`) is mapped onto these codes; an unrecognized label is stored as-is rather than dropped. | `PHYSICAL_FULL`, `PHYSICAL_SAMPLED`, `SYNTHETIC` |
 | `swap_counterparty` | Only for synthetic replication. Manual, no confirmed source. | Free text |
 | `uses_sec_lending` | Whether the fund lends out its holdings. Manual, no confirmed source. | `true` / `false` |
-| `custodian` | **Custody layer 2a**: who holds the *fund's* underlying assets (as opposed to `accounts.custodian`, which is who holds *your units of the fund*). `NULL` required if `legal_structure = UNSECURED_NOTE` — a note has no fund assets, so it can't have a custodian. | Free text |
+| `custodian` | **Custody layer 2a**: who holds the *fund's* underlying assets (as opposed to `accounts.custodian`, which is who holds *your units of the fund*). Leave blank for an unsecured note (ETN) — it has no fund assets, so it has no custodian. | Free text |
 | `sfdr_article` | EU sustainability disclosure classification. Manual — justETF shows it on-site but doesn't expose it via the library used here. | `6`, `8`, `9` |
 | `benchmark_index` | The index it tracks — used for overlap detection without full look-through. **Auto**, from justETF's `Index`. | Free text |
 | `justetf_id` | justETF's own identifier, if pulling exposure data from there. Usually identical to `isin`. | Free text |
@@ -151,7 +149,7 @@ manual field.
 
 `fund_domicile`/`fund_provider` from justETF are deliberately not
 separate columns here — they're the same thing as
-`core.instruments.domicile_country`/`issuer` for an ETP/FUND row
+`core.instruments.domicile_country`/`issuer` for a fund row
 (`domicile_country` mapped through `config/exposure_mapping.csv` the
 same way EQUITY's does). `fund_currency` above is the one justETF field
 that looked like it should reuse `core.instruments.currency` the same
@@ -208,7 +206,7 @@ rename an alias to fix a mismatch, add a new one instead.
 ## config/exposure_mapping.csv
 
 Translates a provider's own raw labels into your `dimensions.csv`
-codes. Two uses now: ETP look-through ingestion (`core.etp_exposure`,
+codes. Two uses now: exchange-traded fund look-through ingestion (`core.etp_exposure`,
 via `folios exposure --refresh`) and direct instrument-level
 `sector`/`industry`/`domicile_country` population at creation time (see
 `new_instrument.py`). Optional file — a missing file just means no

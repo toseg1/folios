@@ -81,7 +81,7 @@ manual steps. `folios form-sync` refreshes the Form's dropdowns after a
 | `folios fx --since DATE` | Fetch ECB FX rates for every currency used in `config/` |
 | `folios prices` | Fetch closing prices for every instrument ever held |
 | `folios value [path]` | Load manual valuations (SCPI, *fonds euros*, unlisted holdings) |
-| `folios exposure --refresh` | Refresh ETP look-through (country/sector) via justETF |
+| `folios exposure --refresh` | Refresh exchange-traded fund look-through (country/sector) via justETF |
 | `folios status` | Flag things worth a human's attention (stale valuations, missing tickers, unmapped exposure) |
 | `folios fix-ticker ID TICKER` | Supply/replace an instrument's Yahoo ticker |
 | `folios auth` | One-time Google OAuth (Forms/Sheets/Drive) |
