@@ -23,7 +23,12 @@ class TypeFields(NamedTuple):
 # the Form's section-by-type table in the build plan (step 14), since the
 # same "only show what this type needs" logic applies to the terminal.
 FIELDS_FOR_TYPE: dict[str, TypeFields] = {
-    "BUY": TypeFields("required", True, True, True, True, True),
+    # Symbol is optional on BUY: leaving it blank makes this a "general
+    # contribution" — the loader splits `gross` across the account's
+    # config/account_allocations.csv target instead of one instrument
+    # (see allocations.py). The wizard skips Quantity/Price in that case
+    # (cli.py's add()), since those are computed per fund, not typed here.
+    "BUY": TypeFields("optional", True, True, True, True, True),
     "SELL": TypeFields("required", True, True, True, True, True),
     "DIVIDEND": TypeFields("required", False, False, True, True, True),
     "INTEREST": TypeFields("optional", False, False, True, True, True),

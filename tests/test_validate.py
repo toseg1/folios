@@ -121,6 +121,33 @@ def test_duplicate_detection_info_messages(seeded_conn, tmp_path):
     assert "unchanged" in messages[0].text
 
 
+def test_general_contribution_needs_a_target_allocation(seeded_conn, tmp_path):
+    entry_file = tmp_path / "no_target.csv"
+    entry_file.write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-10,DEMO-BROKER-CTO,BUY,,,,1000,0,0,EUR,oops no target\n"
+    )
+    messages = validate_file(seeded_conn, entry_file)
+    assert len(messages) == 1
+    assert messages[0].level == "error"
+    assert "no target allocation" in messages[0].text
+
+
+def test_general_contribution_needs_every_target_fund_priced(seeded_conn, tmp_path):
+    # LINXEA-SPIRIT-AV targets DEMO-ETF-WORLD/DEMO-FONDS-EUROS — neither is
+    # priced yet in this fixture, so both should be flagged.
+    entry_file = tmp_path / "av.csv"
+    entry_file.write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-10,LINXEA-SPIRIT-AV,BUY,,,,1000,0,0,EUR,monthly payment\n"
+    )
+    messages = validate_file(seeded_conn, entry_file)
+    errors = [m for m in messages if m.level == "error"]
+    assert len(errors) == 2
+    assert any("DEMO-ETF-WORLD" in m.text for m in errors)
+    assert any("DEMO-FONDS-EUROS" in m.text for m in errors)
+
+
 def test_running_position_considers_prior_db_transactions(seeded_conn, tmp_path):
     # No BUY anywhere for this instrument yet: even a small SELL must fail.
     entry_file = tmp_path / "sell_only.csv"

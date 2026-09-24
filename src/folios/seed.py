@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,10 @@ def load_aliases(path: Path) -> list[dict[str, Any]]:
     return _load_csv(path)
 
 
+def load_account_allocations(path: Path) -> list[dict[str, Any]]:
+    return _load_csv(path)
+
+
 def validate_dimension_values(
     dimensions: list[dict[str, Any]],
     accounts: list[dict[str, Any]],
@@ -112,6 +117,67 @@ def validate_dimension_values(
                     f"config/instruments.csv: {identifier}: {dim}={value!r} is not a "
                     f"known code (add it to config/dimensions.csv)"
                 )
+
+    return errors
+
+
+def validate_account_allocations(
+    accounts: list[dict[str, Any]],
+    instruments: list[dict[str, Any]],
+    allocations: list[dict[str, Any]],
+) -> list[str]:
+    """Hard errors, unlike check_subtype_cross_references's warnings: a
+    broken account/instrument reference or a snapshot that doesn't sum to
+    1 would silently corrupt a general contribution's split, so nothing
+    is written until every block is clean. Deliberately stricter than
+    core.etp_exposure's uncapped, unsummed weights (build-plan §"look-
+    through duality") — that table stores a fund's disclosed, inherently
+    partial look-through holdings; this one is your own instruction for
+    where 100% of new money goes."""
+    account_ids = {row["account_id"] for row in accounts}
+    instrument_ids = {row["instrument_id"] for row in instruments}
+    errors: list[str] = []
+
+    totals: dict[tuple[str, str], Decimal] = {}
+    for i, row in enumerate(allocations):
+        identifier = f"row {i + 1}"
+        account_id = row.get("account_id")
+        instrument_id = row.get("instrument_id")
+        as_of_date = row.get("as_of_date")
+
+        if account_id not in account_ids:
+            errors.append(
+                f"config/account_allocations.csv: {identifier}: "
+                f"account_id={account_id!r} is not in config/accounts.yml"
+            )
+        if instrument_id not in instrument_ids:
+            errors.append(
+                f"config/account_allocations.csv: {identifier}: "
+                f"instrument_id={instrument_id!r} is not in config/instruments.csv"
+            )
+
+        try:
+            weight = Decimal(str(row.get("weight")))
+        except (InvalidOperation, TypeError):
+            errors.append(
+                f"config/account_allocations.csv: {identifier}: "
+                f"weight={row.get('weight')!r} is not a number"
+            )
+            continue
+        if not (Decimal("0") < weight <= Decimal("1")):
+            errors.append(
+                f"config/account_allocations.csv: {identifier}: "
+                f"weight={weight} must be greater than 0 and at most 1"
+            )
+        key = (account_id, as_of_date)
+        totals[key] = totals.get(key, Decimal("0")) + weight
+
+    for (account_id, as_of_date), total in totals.items():
+        if abs(total - Decimal("1")) > Decimal("0.001"):
+            errors.append(
+                f"config/account_allocations.csv: {account_id} as of "
+                f"{as_of_date}: weights sum to {total}, not 1"
+            )
 
     return errors
 
@@ -206,6 +272,8 @@ _INSTRUMENT_CRYPTO_COLUMNS = (
 )
 
 _ALIAS_COLUMNS = ("alias", "source", "instrument_id")
+
+_ACCOUNT_ALLOCATION_COLUMNS = ("account_id", "as_of_date", "instrument_id", "weight", "note")
 
 
 _DIMENSION_SQL = """
@@ -375,6 +443,17 @@ _ALIAS_SQL = """
         instrument_id = EXCLUDED.instrument_id
 """
 
+_ACCOUNT_ALLOCATION_SQL = """
+    INSERT INTO core.account_target_allocations (
+        account_id, as_of_date, instrument_id, weight, note
+    ) VALUES (
+        %(account_id)s, %(as_of_date)s, %(instrument_id)s, %(weight)s, %(note)s
+    )
+    ON CONFLICT (account_id, as_of_date, instrument_id) DO UPDATE SET
+        weight = EXCLUDED.weight,
+        note = EXCLUDED.note
+"""
+
 
 def seed(conn: psycopg.Connection, config_dir: Path | None = None) -> SeedResult:
     # Resolved at call time, not import time, so tests can monkeypatch
@@ -388,8 +467,10 @@ def seed(conn: psycopg.Connection, config_dir: Path | None = None) -> SeedResult
     bond_rows = _load_csv(config_dir / "instruments_bond.csv")
     crypto_rows = _load_csv(config_dir / "instruments_crypto.csv")
     aliases = load_aliases(config_dir / "aliases.csv")
+    account_allocations = load_account_allocations(config_dir / "account_allocations.csv")
 
     errors = validate_dimension_values(dimensions, accounts, instruments)
+    errors += validate_account_allocations(accounts, instruments, account_allocations)
     if errors:
         raise SeedValidationError(errors)
 
@@ -407,6 +488,9 @@ def seed(conn: psycopg.Connection, config_dir: Path | None = None) -> SeedResult
             cur, crypto_rows, _INSTRUMENT_CRYPTO_SQL, _INSTRUMENT_CRYPTO_COLUMNS
         )
         _upsert_many(cur, aliases, _ALIAS_SQL, _ALIAS_COLUMNS)
+        _upsert_many(
+            cur, account_allocations, _ACCOUNT_ALLOCATION_SQL, _ACCOUNT_ALLOCATION_COLUMNS
+        )
     conn.commit()
 
     return SeedResult(
@@ -418,6 +502,7 @@ def seed(conn: psycopg.Connection, config_dir: Path | None = None) -> SeedResult
             "instrument_bond rows": len(bond_rows),
             "instrument_crypto rows": len(crypto_rows),
             "aliases": len(aliases),
+            "account_allocations": len(account_allocations),
         },
         warnings=warnings,
     )

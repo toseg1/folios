@@ -10,3 +10,4 @@ CSX5-AS,IE00B53L3W79,CSX5.AS,CSX5,iShares Core EURO STOXX 50 UCITS ETF EUR (Acc)
 WISDOMTREE-GOLD,,,,WisdomTree Physical Gold,FUND,ETN,EUR,,,,WisdomTree,GB,MARKET_EXPOSED,false,manual,true
 AMUNDI-PATRIMOINE,,,,Amundi Patrimoine C,FUND,UCITS,EUR,DIVERSIFIED,,,Amundi,FR,MARKET_EXPOSED,false,manual,true
 OAT-2032,,,,French OAT 2032,BOND,BOND,EUR,,,,Agence France Trésor,FR,MARKET_EXPOSED,false,manual,true
+DEMO-FONDS-EUROS,,,,Demo Fonds Euros,FUND,OTHER,EUR,,,Euro-denominated capital-guaranteed fund inside a life-insurance wrapper.,Generali,FR,GUARANTEED,false,manual,true

@@ -8,8 +8,13 @@ from pathlib import Path
 
 import psycopg
 
-from folios import fx, seed, validate
-from folios.models import compute_net_amount, compute_signed_quantity, effective_gross
+from folios import allocations, fx, seed, validate
+from folios.models import (
+    EntryRow,
+    compute_net_amount,
+    compute_signed_quantity,
+    effective_gross,
+)
 
 REPO_ROOT = validate.REPO_ROOT
 DEFAULT_DATA_DIR = REPO_ROOT / "data" / "manual"
@@ -117,6 +122,68 @@ def _record_load_run(
     conn.commit()
 
 
+def _plan_rows(
+    conn: psycopg.Connection,
+    parsed: list[tuple[int, str, str, EntryRow]],
+    aliases: dict[str, str],
+) -> list[dict[str, object]]:
+    """One dict per eventual core.transactions row. A normal row plans to
+    exactly one; a general contribution (a BUY with no symbol) plans to
+    one per instrument in the account's current target allocation,
+    computed by allocations.expand_contribution — each gets its own
+    entry_id (csv:<path>:<line>#<instrument_id>), still derived from the
+    same physical CSV line, never a content hash, so it stays a stable
+    key across reloads. validate_parsed already confirmed every target
+    instrument has a price, so expand_contribution isn't expected to
+    raise here — a fresh MissingPriceError would only mean prices
+    changed between validate and load, which can't happen mid-run."""
+    plans: list[dict[str, object]] = []
+    for _line, entry_id, txn_hash, row in parsed:
+        if row.type == "BUY" and row.symbol is None:
+            for expansion in allocations.expand_contribution(
+                conn, row.account, row.entry_date, effective_gross(row)
+            ):
+                plans.append(
+                    {
+                        "entry_id": f"{entry_id}#{expansion['instrument_id']}",
+                        "txn_hash": txn_hash,
+                        "account_id": row.account,
+                        "trade_date": row.entry_date,
+                        "txn_type": row.type,
+                        "instrument_id": expansion["instrument_id"],
+                        "quantity": expansion["quantity"],
+                        "price": expansion["price"],
+                        "gross_amount": expansion["gross_amount"],
+                        "fee": Decimal("0"),
+                        "tax": Decimal("0"),
+                        "net_amount": expansion["net_amount"],
+                        "currency": row.currency,
+                        "note": row.note,
+                    }
+                )
+        else:
+            instrument_id = aliases.get(row.symbol) if row.symbol else None
+            plans.append(
+                {
+                    "entry_id": entry_id,
+                    "txn_hash": txn_hash,
+                    "account_id": row.account,
+                    "trade_date": row.entry_date,
+                    "txn_type": row.type,
+                    "instrument_id": instrument_id,
+                    "quantity": compute_signed_quantity(row),
+                    "price": row.price,
+                    "gross_amount": effective_gross(row),
+                    "fee": row.fee,
+                    "tax": row.tax,
+                    "net_amount": compute_net_amount(row),
+                    "currency": row.currency,
+                    "note": row.note,
+                }
+            )
+    return plans
+
+
 def load_file(conn: psycopg.Connection, path: Path) -> LoadResult:
     """Validate, then upsert every row via ON CONFLICT (entry_id) DO
     UPDATE. Refuses to insert anything — and records a failed load_runs
@@ -137,46 +204,30 @@ def load_file(conn: psycopg.Connection, path: Path) -> LoadResult:
         raise LoadValidationError([str(e) for e in errors])
 
     aliases = validate.alias_to_instrument(conn)
-    entry_ids = [entry_id for _, entry_id, _, _ in parsed]
-    existing = _existing_rows(conn, entry_ids)
+    plans = _plan_rows(conn, parsed, aliases)
+    existing = _existing_rows(conn, [plan["entry_id"] for plan in plans])
     relative = validate.relative_path(path)
 
-    for _line, entry_id, txn_hash, row in parsed:
+    for plan in plans:
+        entry_id = plan["entry_id"]
+        txn_hash = plan["txn_hash"]
         prior = existing.get(entry_id)
         if prior is not None and prior["txn_hash"] == txn_hash:
             result.rows_skipped += 1
             continue
 
-        instrument_id = aliases.get(row.symbol) if row.symbol else None
-        gross = effective_gross(row)
-        net_amount = compute_net_amount(row)
-        quantity = compute_signed_quantity(row)
-
-        if row.currency == "EUR":
+        if plan["currency"] == "EUR":
             fx_rate: Decimal = Decimal("1")
-            fx_rate_date = row.entry_date
+            fx_rate_date = plan["trade_date"]
         else:
             fx_rate, fx_rate_date = fx.resolve_rate_with_date(
-                conn, row.entry_date, "EUR", row.currency
+                conn, plan["trade_date"], "EUR", plan["currency"]
             )
 
         params = {
-            "entry_id": entry_id,
-            "txn_hash": txn_hash,
-            "account_id": row.account,
-            "trade_date": row.entry_date,
-            "txn_type": row.type,
-            "instrument_id": instrument_id,
-            "quantity": quantity,
-            "price": row.price,
-            "gross_amount": gross,
-            "fee": row.fee,
-            "tax": row.tax,
-            "net_amount": net_amount,
-            "currency": row.currency,
+            **plan,
             "fx_rate_to_base": fx_rate,
             "fx_rate_date": fx_rate_date,
-            "note": row.note,
             "source_file": relative,
         }
 
@@ -246,18 +297,37 @@ def rebuild(
     tables from files alone. Never touches core.fx_rates or core.prices:
     those come from external APIs, not entry files, so they're outside
     what "rebuild from files" means. Not byte-for-byte: created_at
-    defaults to now(), so a rebuilt row's timestamp is fresh."""
+    defaults to now(), so a rebuilt row's timestamp is fresh.
+
+    core.prices has an FK on instrument_id, so TRUNCATE ... CASCADE on
+    core.instruments would otherwise silently wipe it too (Postgres
+    cascades TRUNCATE to any table referencing a truncated one, listed or
+    not) — losing irreplaceable price_source=manual valuation history
+    that no external API can refetch. Backed up and restored around the
+    truncate instead; a price row for an instrument since removed from
+    config isn't restored, same as it would have been lost before."""
     data_dir = data_dir if data_dir is not None else DEFAULT_DATA_DIR
 
     with conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS _rebuild_prices_backup")
+        cur.execute("CREATE TEMP TABLE _rebuild_prices_backup AS SELECT * FROM core.prices")
         cur.execute(
             "TRUNCATE core.dimensions, core.accounts, core.instruments, "
             "core.instrument_fund, core.instrument_bond, core.instrument_crypto, "
-            "core.instrument_aliases, core.transactions CASCADE"
+            "core.instrument_aliases, core.account_target_allocations, "
+            "core.transactions CASCADE"
         )
     conn.commit()
 
     seed.seed(conn, config_dir)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.prices SELECT * FROM _rebuild_prices_backup "
+            "WHERE instrument_id IN (SELECT instrument_id FROM core.instruments)"
+        )
+        cur.execute("DROP TABLE _rebuild_prices_backup")
+    conn.commit()
 
     total = LoadResult()
     if data_dir.exists():

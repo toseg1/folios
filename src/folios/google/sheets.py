@@ -13,6 +13,7 @@ from googleapiclient.discovery import build
 from folios import new_instrument, validate
 from folios.google.auth import get_credentials
 from folios.google.forms import (
+    CONTRIBUTION_TYPE,
     NEW_INSTRUMENT_SECTIONS,
     NOT_LISTED,
     RESPONSE_SHEET_HEADERS,
@@ -336,6 +337,12 @@ def pull_responses(
                 )
             )
             continue
+
+        if txn_type == CONTRIBUTION_TYPE:
+            # No Symbol/Quantity/Price on this page — fields already has
+            # none of those keys, so the row built below naturally leaves
+            # them blank, matching EntryRow._general_contribution_shape.
+            txn_type = "BUY"
 
         section_key = _section_for_type(txn_type)
         if section_key is None:

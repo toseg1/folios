@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ from folios.seed import (
     SeedValidationError,
     check_subtype_cross_references,
     seed,
+    validate_account_allocations,
     validate_dimension_values,
 )
 
@@ -16,14 +18,14 @@ def test_seed_example_config(migrated_conn):
     result = seed(migrated_conn, EXAMPLE_CONFIG)
 
     assert result.counts["accounts"] == 10
-    assert result.counts["instruments"] == 11
+    assert result.counts["instruments"] == 12
     assert result.warnings == []
 
     with migrated_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.accounts")
         assert cur.fetchone()[0] == 10
         cur.execute("SELECT count(*) FROM core.instruments")
-        assert cur.fetchone()[0] == 11
+        assert cur.fetchone()[0] == 12
         cur.execute("SELECT count(*) FROM core.dimensions")
         assert cur.fetchone()[0] > 0
 
@@ -47,10 +49,10 @@ def test_seed_is_idempotent_and_updates_in_place(migrated_conn):
     finally:
         instruments_csv.write_text(original)
 
-    assert result.counts["instruments"] == 11
+    assert result.counts["instruments"] == 12
     with migrated_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.instruments")
-        assert cur.fetchone()[0] == 11
+        assert cur.fetchone()[0] == 12
         cur.execute(
             "SELECT name FROM core.instruments WHERE instrument_id = 'DEMO-SHARE'"
         )
@@ -109,6 +111,74 @@ def test_subtype_cross_reference_warnings():
 
     warnings = check_subtype_cross_references(instruments, [], orphan_bond_rows, [])
     assert any("GHOST" in w for w in warnings)
+
+
+def test_seed_populates_account_target_allocations(migrated_conn):
+    seed(migrated_conn, EXAMPLE_CONFIG)
+
+    with migrated_conn.cursor() as cur:
+        cur.execute(
+            "SELECT instrument_id, weight FROM core.account_target_allocations "
+            "WHERE account_id = 'LINXEA-SPIRIT-AV' ORDER BY instrument_id"
+        )
+        rows = cur.fetchall()
+    assert rows == [
+        ("DEMO-ETF-WORLD", Decimal("0.6")),
+        ("DEMO-FONDS-EUROS", Decimal("0.4")),
+    ]
+
+
+def test_validate_account_allocations_unknown_account_and_instrument():
+    accounts = [{"account_id": "OK-ACC"}]
+    instruments = [{"instrument_id": "OK-FUND"}]
+    allocations = [
+        {"account_id": "GHOST-ACC", "as_of_date": "2026-01-01",
+         "instrument_id": "OK-FUND", "weight": "1"},
+        {"account_id": "OK-ACC", "as_of_date": "2026-01-01",
+         "instrument_id": "GHOST-FUND", "weight": "1"},
+    ]
+    errors = validate_account_allocations(accounts, instruments, allocations)
+    assert any("GHOST-ACC" in e for e in errors)
+    assert any("GHOST-FUND" in e for e in errors)
+
+
+def test_validate_account_allocations_weights_must_sum_to_one():
+    accounts = [{"account_id": "OK-ACC"}]
+    instruments = [{"instrument_id": "FUND-A"}, {"instrument_id": "FUND-B"}]
+    allocations = [
+        {"account_id": "OK-ACC", "as_of_date": "2026-01-01",
+         "instrument_id": "FUND-A", "weight": "0.5"},
+        {"account_id": "OK-ACC", "as_of_date": "2026-01-01",
+         "instrument_id": "FUND-B", "weight": "0.3"},
+    ]
+    errors = validate_account_allocations(accounts, instruments, allocations)
+    assert len(errors) == 1
+    assert "sum to 0.8" in errors[0]
+
+
+def test_validate_account_allocations_accepts_a_full_snapshot():
+    accounts = [{"account_id": "OK-ACC"}]
+    instruments = [{"instrument_id": "FUND-A"}, {"instrument_id": "FUND-B"}]
+    allocations = [
+        {"account_id": "OK-ACC", "as_of_date": "2026-01-01",
+         "instrument_id": "FUND-A", "weight": "0.6"},
+        {"account_id": "OK-ACC", "as_of_date": "2026-01-01",
+         "instrument_id": "FUND-B", "weight": "0.4"},
+    ]
+    assert validate_account_allocations(accounts, instruments, allocations) == []
+
+
+def test_seed_raises_on_non_summing_allocation_weights(migrated_conn, tmp_path):
+    for name in ("dimensions.csv", "accounts.yml", "instruments.csv", "aliases.csv"):
+        (tmp_path / name).write_bytes((EXAMPLE_CONFIG / name).read_bytes())
+    (tmp_path / "account_allocations.csv").write_text(
+        "account_id,as_of_date,instrument_id,weight,note\n"
+        "LINXEA-SPIRIT-AV,2026-01-01,DEMO-ETF-WORLD,0.5,\n"
+    )
+
+    with pytest.raises(SeedValidationError) as exc_info:
+        seed(migrated_conn, tmp_path)
+    assert "sum to 0.5" in str(exc_info.value)
 
 
 def _write_config_with_new_envelope(config_dir: Path, valid: bool = True) -> None:
