@@ -116,6 +116,98 @@ def test_fx_rate_is_frozen_onto_the_row(seeded_conn, tmp_path):
     assert fx_rate_date == date(2026, 1, 5)
 
 
+def _store_price(conn, instrument_id: str, price_date: date, close_price: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.prices (instrument_id, price_date, close_price, currency) "
+            "VALUES (%s, %s, %s, 'EUR')",
+            (instrument_id, price_date, Decimal(close_price)),
+        )
+    conn.commit()
+
+
+def test_general_contribution_expands_into_one_row_per_fund(seeded_conn, tmp_path):
+    _store_price(seeded_conn, "DEMO-ETF-WORLD", date(2026, 1, 1), "100")
+    _store_price(seeded_conn, "DEMO-FONDS-EUROS", date(2026, 1, 1), "1")
+
+    av_file = tmp_path / "av.csv"
+    av_file.write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-10,LINXEA-SPIRIT-AV,BUY,,,,1000,0,0,EUR,monthly payment\n"
+    )
+
+    result = load_file(seeded_conn, av_file)
+    assert result.rows_read == 1
+    assert result.rows_inserted == 2
+
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT entry_id, instrument_id, quantity, gross_amount, net_amount "
+            "FROM core.transactions WHERE account_id = 'LINXEA-SPIRIT-AV' "
+            "ORDER BY instrument_id"
+        )
+        rows = cur.fetchall()
+
+    base_entry_id = f"csv:{av_file}:2"
+    assert rows == [
+        (f"{base_entry_id}#DEMO-ETF-WORLD", "DEMO-ETF-WORLD", Decimal("6"),
+         Decimal("600"), Decimal("-600")),
+        (f"{base_entry_id}#DEMO-FONDS-EUROS", "DEMO-FONDS-EUROS", Decimal("400"),
+         Decimal("400"), Decimal("-400")),
+    ]
+
+
+def test_general_contribution_reload_is_idempotent(seeded_conn, tmp_path):
+    _store_price(seeded_conn, "DEMO-ETF-WORLD", date(2026, 1, 1), "100")
+    _store_price(seeded_conn, "DEMO-FONDS-EUROS", date(2026, 1, 1), "1")
+
+    av_file = tmp_path / "av.csv"
+    av_file.write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-10,LINXEA-SPIRIT-AV,BUY,,,,1000,0,0,EUR,monthly payment\n"
+    )
+
+    load_file(seeded_conn, av_file)
+    result = load_file(seeded_conn, av_file)
+
+    assert result.rows_inserted == 0
+    assert result.rows_skipped == 2
+    with seeded_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM core.transactions WHERE account_id = 'LINXEA-SPIRIT-AV'"
+        )
+        assert cur.fetchone()[0] == 2
+
+
+def test_general_contribution_missing_price_blocks_the_whole_file(seeded_conn, tmp_path):
+    _store_price(seeded_conn, "DEMO-ETF-WORLD", date(2026, 1, 1), "100")
+    # DEMO-FONDS-EUROS deliberately left unpriced.
+
+    av_file = tmp_path / "av.csv"
+    av_file.write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-10,LINXEA-SPIRIT-AV,BUY,,,,1000,0,0,EUR,monthly payment\n"
+    )
+
+    with pytest.raises(LoadValidationError, match="DEMO-FONDS-EUROS"):
+        load_file(seeded_conn, av_file)
+
+    with seeded_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM core.transactions")
+        assert cur.fetchone()[0] == 0
+
+
+def test_general_contribution_with_no_allocation_is_a_clean_error(seeded_conn, tmp_path):
+    no_target_file = tmp_path / "cto.csv"
+    no_target_file.write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-10,DEMO-BROKER-CTO,BUY,,,,1000,0,0,EUR,oops no symbol\n"
+    )
+
+    with pytest.raises(LoadValidationError, match="no target allocation"):
+        load_file(seeded_conn, no_target_file)
+
+
 def test_rebuild_reproduces_entry_ids_and_sums(migrated_conn, tmp_path):
     data_dir = tmp_path / "manual"
     data_dir.mkdir()
@@ -139,6 +231,36 @@ def test_rebuild_reproduces_entry_ids_and_sums(migrated_conn, tmp_path):
     after = snapshot()
 
     assert before == after
+
+
+def test_rebuild_reproduces_general_contribution_rows(migrated_conn, tmp_path):
+    # core.prices survives a rebuild (rebuild never touches it), so a
+    # general contribution's expansion is reproducible from config/ +
+    # data/manual/ + whatever prices already happen to be stored. Seed
+    # once first so the instruments exist for the price rows' FK.
+    seed(migrated_conn, EXAMPLE_CONFIG)
+    _store_price(migrated_conn, "DEMO-ETF-WORLD", date(2026, 1, 1), "100")
+    _store_price(migrated_conn, "DEMO-FONDS-EUROS", date(2026, 1, 1), "1")
+
+    data_dir = tmp_path / "manual"
+    data_dir.mkdir()
+    (data_dir / "transactions.csv").write_text(
+        "date,account,type,symbol,quantity,price,gross,fee,tax,currency,note\n"
+        "2026-01-10,LINXEA-SPIRIT-AV,BUY,,,,1000,0,0,EUR,monthly payment\n"
+    )
+
+    rebuild(migrated_conn, data_dir=data_dir, config_dir=EXAMPLE_CONFIG)
+    with migrated_conn.cursor() as cur:
+        cur.execute("SELECT entry_id FROM core.transactions ORDER BY entry_id")
+        before = [r[0] for r in cur.fetchall()]
+
+    rebuild(migrated_conn, data_dir=data_dir, config_dir=EXAMPLE_CONFIG)
+    with migrated_conn.cursor() as cur:
+        cur.execute("SELECT entry_id FROM core.transactions ORDER BY entry_id")
+        after = [r[0] for r in cur.fetchall()]
+
+    assert before == after
+    assert len(before) == 2
 
 
 def test_rebuild_ignores_valuation_files_in_the_same_directory(migrated_conn, tmp_path):

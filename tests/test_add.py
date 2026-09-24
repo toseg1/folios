@@ -6,9 +6,12 @@ def test_every_txn_type_has_a_field_profile():
     assert set(FIELDS_FOR_TYPE) == TXN_TYPES
 
 
-def test_buy_requires_symbol_quantity_price_gross_fee_tax():
+def test_buy_symbol_is_optional_quantity_price_gross_fee_tax_required():
+    # Optional, not absent: leaving it blank makes this a general
+    # contribution (config/account_allocations.csv), it doesn't mean BUY
+    # has no symbol concept the way DEPOSIT does.
     fields = FIELDS_FOR_TYPE["BUY"]
-    assert fields.symbol == "required"
+    assert fields.symbol == "optional"
     assert fields.quantity and fields.price and fields.gross
     assert fields.fee and fields.tax
 

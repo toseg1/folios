@@ -85,8 +85,31 @@ def test_standalone_fee_row_with_blank_fee_tax_is_fine():
     assert row.type == "FEE"
 
 
+def test_general_contribution_needs_gross():
+    with pytest.raises(ValidationError, match="needs gross"):
+        _row(symbol=None, quantity=None, price=None, gross=None, fee="0", tax="0")
+
+
+def test_general_contribution_rejects_quantity_or_price():
+    with pytest.raises(ValidationError, match="cannot carry quantity/price"):
+        _row(symbol=None, quantity="10", price=None, gross="1000", fee="0", tax="0")
+
+
+def test_general_contribution_rejects_fee_or_tax():
+    with pytest.raises(ValidationError, match="cannot carry fee/tax"):
+        _row(symbol=None, quantity=None, price=None, gross="1000", fee="1", tax="0")
+
+
+def test_general_contribution_bare_gross_is_fine():
+    row = _row(symbol=None, quantity=None, price=None, gross="1000", fee="0", tax="0")
+    assert row.symbol is None
+    assert row.gross == Decimal("1000")
+
+
 def test_blank_symbol_and_note_become_none():
-    row = _row(symbol="", note="")
+    row = _row(
+        type="DIVIDEND", symbol="", quantity=None, price=None, note="",
+    )
     assert row.symbol is None
     assert row.note is None
 

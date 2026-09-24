@@ -207,8 +207,11 @@ def add() -> None:
                 hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
                 console.print(f"[red]{answer!r} does not resolve.[/red]{hint}")
 
-        quantity = Prompt.ask("Quantity") if fields.quantity else ""
-        price = Prompt.ask("Price") if fields.price else ""
+        # A BUY left with no symbol is a general contribution — quantity
+        # and price are computed per fund by the loader, never typed here.
+        ask_quantity_price = not (txn_type == "BUY" and symbol is None)
+        quantity = Prompt.ask("Quantity") if fields.quantity and ask_quantity_price else ""
+        price = Prompt.ask("Price") if fields.price and ask_quantity_price else ""
 
         default_currency = "EUR"
         if symbol is not None:

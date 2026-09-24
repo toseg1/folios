@@ -47,3 +47,6 @@ country,CA,Canada,40
 country,FR,France,50
 country,IE,Ireland,60
 protection_type,MARKET_EXPOSED,Market exposed,10
+protection_type,GUARANTEED,Guaranteed,20
+protection_type,PARTIALLY_PROTECTED,Partially protected,30
+protection_type,UNKNOWN,Unknown,40

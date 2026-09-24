@@ -10,7 +10,7 @@ from typing import Any
 import psycopg
 from pydantic import ValidationError
 
-from folios import fx
+from folios import allocations, fx
 from folios.models import QUANTITY_SIGN, EntryRow, build_entry_id, compute_txn_hash
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -171,6 +171,25 @@ def validate_parsed(
                     f"instrument_aliases{hint}",
                 )
             )
+
+    for line, entry_id, _txn_hash, row in parsed:
+        if row.type != "BUY" or row.symbol is not None:
+            continue
+        try:
+            weights = allocations.current_allocation(conn, row.account, row.entry_date)
+        except allocations.NoAllocationError as exc:
+            messages.append(Message("error", line, entry_id, str(exc)))
+            continue
+        for instrument_id, _weight in weights:
+            if allocations.resolve_price_with_date(conn, instrument_id, row.entry_date) is None:
+                messages.append(
+                    Message(
+                        "error", line, entry_id,
+                        f"no price for {instrument_id} on or before "
+                        f"{row.entry_date.isoformat()} — run `folios value`/"
+                        f"`folios prices` first",
+                    )
+                )
 
     for line, entry_id, _txn_hash, row in parsed:
         if row.currency != "EUR":

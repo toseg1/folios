@@ -55,8 +55,13 @@ leave test infra running that the user didn't ask for.
   from `txn_type` (`models.QUANTITY_SIGN`, `compute_net_amount`).
 - **`entry_id` is a stable key**, never a content hash:
   `csv:<relative path>:<line>` for hand-edited/pulled CSV rows. A
-  content hash (`txn_hash`) is stored alongside, for change detection
-  only — never as the primary key.
+  general contribution (a `BUY` with no symbol, split across an
+  account's `config/account_allocations.csv` target — see
+  `allocations.py`) fans out into one `csv:<relative path>:<line>#
+  <instrument_id>` row per instrument, still derived from that same
+  physical line, never a content hash. A content hash (`txn_hash`) is
+  stored alongside, for change detection only — never as the primary
+  key.
 - **Dimensions are data, transaction types are code.** `asset_class`,
   `region`, `sector`, etc. are extended by adding a row to
   `config/dimensions.csv`. `txn_type` keeps a CHECK constraint because
@@ -108,6 +113,7 @@ src/folios/
   db.py, models.py, validate.py, loader.py     core entry pipeline
   seed.py             config/ -> database, also reused by the new-instrument path
   fx.py, prices.py, exposure.py, valuations.py, new_instrument.py, status.py
+  allocations.py      account target allocations + general-contribution split
   sync.py             pull -> fx -> load -> value -> prices -> status
   metabase.py, doctor.py
   google/

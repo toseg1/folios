@@ -139,6 +139,32 @@ class EntryRow(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _general_contribution_shape(self) -> EntryRow:
+        # A BUY with no symbol is a "general contribution": the loader
+        # splits `gross` across the account's config/account_allocations.csv
+        # target and resolves each fund's own quantity/price itself (see
+        # allocations.py) — so none of that can be given directly here.
+        if self.type == "BUY" and self.symbol is None:
+            if self.quantity is not None or self.price is not None:
+                raise ValueError(
+                    "a BUY with no symbol (a general contribution, split by "
+                    "config/account_allocations.csv) cannot carry "
+                    "quantity/price — give gross only"
+                )
+            if self.gross is None:
+                raise ValueError(
+                    "a BUY with no symbol (a general contribution) needs "
+                    "gross — the amount to split across the account's "
+                    "target allocation"
+                )
+            if self.fee != 0 or self.tax != 0:
+                raise ValueError(
+                    "a BUY with no symbol (a general contribution) cannot "
+                    "carry fee/tax — record those as a separate FEE/TAX row"
+                )
+        return self
+
+    @model_validator(mode="after")
     def _standalone_cost_rows_carry_no_fee_or_tax(self) -> EntryRow:
         # Mirrors the DB's own standalone_cost_rows_have_no_columns CHECK:
         # a FEE/TAX row's amount lives in `gross` alone. fee/tax populated

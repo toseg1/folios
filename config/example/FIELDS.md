@@ -71,6 +71,13 @@ since it has no market price) held via ordinary transactions in that
 one account. `marts.v_av_positions` rolls an AV contract's holdings back
 up by instrument/asset_class.
 
+Give the account a target split across those instruments in
+`config/account_allocations.csv` and a plain contribution — a `BUY` row
+in `data/manual/transactions.csv` with `symbol` left blank, just a date,
+account and `gross` — is divided across them automatically by weight;
+see that file's own section below. This works the same way for a `PER`
+account, which has the same fonds-euros/unité-de-compte structure.
+
 ## config/instruments.csv
 
 One row per instrument (a share, an ETF, a bond, a crypto token, …).
@@ -202,6 +209,48 @@ rename an alias to fix a mismatch, add a new one instead.
 | `alias` | The spelling you'll type as `symbol` in a transaction row, or that the Form/pull path produces. | Free text |
 | `source` | Where this alias came from. `manual` for anything you typed by hand or via `folios add`; other values are written automatically by adapters (e.g. a future `folios pull` source). | `manual`, or an adapter-specific value |
 | `instrument_id` | Which instrument this resolves to. Must exist in `config/instruments.csv`. | Must match an `instrument_id` |
+
+## config/account_allocations.csv
+
+Optional file. Each row is one instrument's target weight in one
+account's contribution split as of one date — a full snapshot, not a
+delta: every `as_of_date` block for an account lists *every* instrument
+it should currently receive contributions in. Generic on `account_id`,
+not AV-specific — a `PER` contract works identically.
+
+A `BUY` row in a transactions CSV with `symbol` left blank (just `date`,
+`account`, `gross`) is a **general contribution**: `folios load`/`folios
+validate` look up the latest `as_of_date <= trade_date` block for that
+account here and split `gross` across its instruments by weight, in
+whole cents (the parts always sum exactly back to `gross`), resolving
+each instrument's own quantity from its latest known price
+(`core.prices`, from `folios prices`/`folios value`) on or before that
+date. Each resulting row lands in `core.transactions` as an ordinary
+`BUY` with its own real `instrument_id`/`quantity`/`price` —
+`entry_id` becomes `csv:<path>:<line>#<instrument_id>` per generated
+row, still tied to the one physical CSV line, never a content hash. If
+any target instrument has no price yet for that date, the whole file
+fails to load, same as a missing FX rate — run `folios value`/`folios
+prices` first. A general contribution can't carry `quantity`, `price`,
+`fee`, or `tax` directly (record a fee as a separate `FEE` row).
+
+**Changing the target ("arbitrage")** — reweighting, adding, or
+dropping an instrument — means appending a new, later `as_of_date`
+block with the complete new list; never edit an existing block's rows
+in place (like every other config file here, `folios init`/`seed`
+upserts by key, it doesn't delete rows you removed from the CSV, so
+history should be added to, not rewritten). Moving already-invested
+money between instruments (a real SELL-then-BUY arbitrage) is still an
+ordinary pair of manual transaction rows — only the target-weight
+bookkeeping is automated here, not rebalancing existing capital.
+
+| Column | Meaning | Values |
+| --- | --- | --- |
+| `account_id` | Which account this target applies to. Must exist in `config/accounts.yml`. | Must match an `account_id` |
+| `as_of_date` | The date this snapshot takes effect from. | ISO date |
+| `instrument_id` | One instrument in the target. Must exist in `config/instruments.csv`. | Must match an `instrument_id` |
+| `weight` | This instrument's share of a new contribution, as a decimal fraction. `SUM(weight)` per `(account_id, as_of_date)` must be within ~0.001 of `1` — a hard error at `folios init` time, unlike `core.etp_exposure`'s look-through weights (which are a fund's own disclosed, inherently partial holdings, never expected to sum to 1). | Decimal fraction in `(0, 1]` |
+| `note` | Free text, e.g. why the target changed. | Free text |
 
 ## config/exposure_mapping.csv
 

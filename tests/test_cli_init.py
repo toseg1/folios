@@ -30,12 +30,12 @@ def test_init_seeds_accounts_instruments_and_dimensions(clean_test_db, monkeypat
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0, result.output
     assert "seeded 10 accounts" in result.output
-    assert "seeded 11 instruments" in result.output
+    assert "seeded 12 instruments" in result.output
 
     with clean_test_db.cursor() as cur:
         cur.execute("SELECT count(*) FROM core.accounts")
         assert cur.fetchone()[0] == 10
         cur.execute("SELECT count(*) FROM core.instruments")
-        assert cur.fetchone()[0] == 11
+        assert cur.fetchone()[0] == 12
         cur.execute("SELECT count(*) FROM core.dimensions")
         assert cur.fetchone()[0] > 0
