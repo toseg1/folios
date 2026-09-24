@@ -19,6 +19,15 @@ FORM_STATE_PATH = REPO_ROOT / ".credentials" / "form_state.json"
 # written to core.transactions. See docs/folios-build-plan.md step 14.
 VALUATION_TYPE = "Valuation"
 
+# Not a real txn_type either — a friendlier phone-entry label for "a BUY
+# with no symbol" (see allocations.py: the loader splits it across an
+# account's config/account_allocations.csv target). Routes to its own
+# page (Amount/Currency/Note, same shape as `cash` below) since Google
+# Forms sections are page-level — making Trade's Symbol optional
+# wouldn't skip its still-required Quantity/Price on the same page. The
+# sheets adapter rewrites this back to a real BUY before the row is built.
+CONTRIBUTION_TYPE = "Contribution (split by target allocation)"
+
 NOT_LISTED = "+ Not listed (new instrument)"
 
 # Confirmed live: batchUpdate 400s with "ChoiceQuestion.options is
@@ -288,6 +297,20 @@ VALUATION_SECTION = (
     ],
 )
 
+# Same shape as `cash` in SECTIONS (DEPOSIT/WITHDRAWAL) — no Symbol,
+# Quantity or Price at all, since none of those are answerable for a
+# contribution the loader splits itself. Kept out of SECTIONS, same
+# reason VALUATION_SECTION is: CONTRIBUTION_TYPE isn't a real txn_type,
+# so it can't be discovered by scanning SECTIONS' own txn_types lists.
+CONTRIBUTION_SECTION = (
+    "contribution", "Contribution", [CONTRIBUTION_TYPE],
+    [
+        Field("Amount", "number"),
+        Field("Currency", "dropdown", dimension="currency", terminal=True),
+        Field("Note", "text", required=False),
+    ],
+)
+
 
 def _is_active(row: dict[str, Any]) -> bool:
     # accounts.yml gives a native YAML bool; instruments.csv gives CSV
@@ -373,7 +396,10 @@ RESPONSE_SHEET_HEADERS = [
 
 
 def _all_sections() -> list[tuple[str, str, list[str], list[Field]]]:
-    return [*SECTIONS, *NEW_INSTRUMENT_SECTIONS, VALUATION_SECTION]
+    # CONTRIBUTION_SECTION appended last so it never shifts any existing
+    # section's position (create_form/form_sync only ever look sections
+    # up by id/title, but tests slice `items` by relative index).
+    return [*SECTIONS, *NEW_INSTRUMENT_SECTIONS, VALUATION_SECTION, CONTRIBUTION_SECTION]
 
 
 def _page_break_requests() -> list[dict[str, Any]]:
@@ -404,6 +430,9 @@ def _routing_requests(
         for txn_type in txn_types:
             type_options.append({"value": txn_type, "goToSectionId": section_ids[key]})
     type_options.append({"value": VALUATION_TYPE, "goToSectionId": section_ids["valuation"]})
+    type_options.append(
+        {"value": CONTRIBUTION_TYPE, "goToSectionId": section_ids["contribution"]}
+    )
 
     return [
         {

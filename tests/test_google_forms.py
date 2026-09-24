@@ -248,6 +248,13 @@ def test_create_form_builds_expected_item_order_and_routing(seeded_conn):
     valuation_page_break_id = service.items[valuation_index]["itemId"]
     assert type_options[google_forms.VALUATION_TYPE] == valuation_page_break_id
 
+    contribution_index = titles.index("Contribution")
+    assert titles[contribution_index + 1 : contribution_index + 4] == [
+        "Amount", "Currency", "Note",
+    ]
+    contribution_page_break_id = service.items[contribution_index]["itemId"]
+    assert type_options[google_forms.CONTRIBUTION_TYPE] == contribution_page_break_id
+
     # A Symbol field's "not listed" option routes to New instrument.
     new_instrument_index = titles.index("New instrument")
     new_instrument_page_break_id = service.items[new_instrument_index]["itemId"]
@@ -554,6 +561,53 @@ def test_form_sync_preserves_not_listed_routing(seeded_conn, monkeypatch):
     assert not_listed_option["goToSectionId"] == new_instrument_item["itemId"]
 
 
+def test_contribution_section_has_no_symbol_quantity_or_price(seeded_conn):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+
+    labels_in_section: list[str] = []
+    current_section = None
+    for item in service.items:
+        if "pageBreakItem" in item:
+            current_section = item.get("title")
+            continue
+        if current_section == "Contribution":
+            labels_in_section.append(item["title"])
+    assert labels_in_section == ["Amount", "Currency", "Note"]
+
+
+def test_form_sync_refreshes_contribution_currency_from_a_new_dimension_code(
+    seeded_conn, monkeypatch, tmp_path
+):
+    service = FakeFormsService()
+    google_forms.create_form(seeded_conn, service)
+    google_forms._save_form_state({"form_id": service.form_id, "sheet_id": "fake-sheet-id"})
+    monkeypatch.setattr(google_forms, "build_forms_service", lambda creds=None: service)
+
+    config_copy = tmp_path / "config"
+    shutil.copytree(EXAMPLE_CONFIG, config_copy)
+    accounts_path = config_copy / "accounts.yml"
+    # Introduces a currency not already used anywhere in EXAMPLE_CONFIG,
+    # so it can only show up via fx.currencies_from_config() picking up
+    # this new account's base_currency — same mechanism dimension_codes()
+    # uses for every "currency" dropdown, Contribution's included.
+    accounts_path.write_text(
+        accounts_path.read_text() + "\n"
+        "- account_id: NEW-CHF-ACCOUNT\n"
+        "  broker: B\n"
+        "  account_type: cash\n"
+        "  fiscal_envelope: CURRENT\n"
+        "  base_currency: CHF\n"
+        "  opened_on: 2026-01-01\n"
+    )
+    monkeypatch.setattr(seed_module, "CONFIG_DIR", config_copy)
+
+    google_forms.form_sync(seeded_conn)
+
+    currency_item = _item_in_section(service, "Contribution", "Currency")
+    assert "CHF" in [o["value"] for o in _options(currency_item)]
+
+
 def test_trade_symbol_is_terminal_and_currency_is_not(seeded_conn):
     service = FakeFormsService()
     google_forms.create_form(seeded_conn, service)
@@ -600,7 +654,7 @@ def test_form_sync_preserves_terminal_submit_on_currency(seeded_conn, monkeypatc
 
     google_forms.form_sync(seeded_conn)
 
-    for section_title in ("Income", "Cash", "Cost"):
+    for section_title in ("Income", "Cash", "Cost", "Contribution"):
         currency_options = _options(_item_in_section(service, section_title, "Currency"))
         assert currency_options
         assert all(o["goToAction"] == "SUBMIT_FORM" for o in currency_options), section_title

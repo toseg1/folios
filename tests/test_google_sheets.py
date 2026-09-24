@@ -1,5 +1,6 @@
 import shutil
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -474,6 +475,87 @@ def test_pull_fills_currency_from_instrument_for_transfer(seeded_conn, isolated_
     assert result.transactions_written == 1
     txn_path = isolated_state / "manual" / "gform_2026-01-10.csv"
     assert ",EUR," in txn_path.read_text()
+
+
+def _store_price(conn, instrument_id: str, price_date: date, close_price: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.prices (instrument_id, price_date, close_price, currency) "
+            "VALUES (%s, %s, %s, 'EUR')",
+            (instrument_id, price_date, Decimal(close_price)),
+        )
+    conn.commit()
+
+
+def _contribution_response(response_id: str, account: str, amount: str) -> dict[str, Any]:
+    # CONTRIBUTION_TYPE's page isn't in the shared FORM_ITEMS/_response()
+    # helper (its Amount/Currency/Note would collide with Trade's own
+    # titles) — built directly against distinct question ids instead,
+    # same pattern as the Bond-continuation-page test above.
+    return {
+        "responseId": response_id,
+        "createTime": "2026-01-10T12:00:00Z",
+        "lastSubmittedTime": "2026-01-10T12:00:00Z",
+        "answers": {
+            "q_date": _answer("2026-01-10"),
+            "q_account": _answer(account),
+            "q_type": _answer(google_forms.CONTRIBUTION_TYPE),
+            "q_contrib_amount": _answer(amount),
+            "q_contrib_currency": _answer("EUR"),
+        },
+    }
+
+
+_CONTRIBUTION_ITEMS = [
+    *FORM_ITEMS,
+    {"title": "Contribution", "pageBreakItem": {}},
+    {"title": "Amount", "questionItem": {"question": {"questionId": "q_contrib_amount"}}},
+    {"title": "Currency", "questionItem": {"question": {"questionId": "q_contrib_currency"}}},
+    {"title": "Note", "questionItem": {"question": {"questionId": "q_contrib_note"}}},
+]
+
+
+def test_pull_writes_a_general_contribution_with_blank_symbol(seeded_conn, isolated_state):
+    _save_form_state(isolated_state)
+    _store_price(seeded_conn, "DEMO-ETF-WORLD", PULL_DATE, "100")
+    _store_price(seeded_conn, "DEMO-FONDS-EUROS", PULL_DATE, "1")
+
+    response = _contribution_response("r-contrib", "LINXEA-SPIRIT-AV", "1000")
+    forms_service = FakePullFormsService([response], items=_CONTRIBUTION_ITEMS)
+    sheets_service = FakeSheetsService()
+
+    result = _pull(seeded_conn, forms_service, sheets_service)
+
+    assert result.transactions_written == 1
+    assert result.errors == []
+
+    txn_path = isolated_state / "manual" / "gform_2026-01-10.csv"
+    content = txn_path.read_text()
+    # BUY, blank symbol/quantity/price, gross=1000 — the header's column
+    # order is date,account,type,symbol,quantity,price,gross,...
+    assert "LINXEA-SPIRIT-AV,BUY,,,,1000,0,0,EUR" in content
+
+    row = sheets_service.appended_rows[0]
+    assert row[-2] == "ok"
+
+
+def test_pull_flags_a_general_contribution_with_no_target_allocation(
+    seeded_conn, isolated_state
+):
+    _save_form_state(isolated_state)
+    response = _contribution_response("r-contrib-no-target", "DEMO-BROKER-CTO", "1000")
+    forms_service = FakePullFormsService([response], items=_CONTRIBUTION_ITEMS)
+    sheets_service = FakeSheetsService()
+
+    result = _pull(seeded_conn, forms_service, sheets_service)
+
+    assert result.transactions_written == 0
+    assert len(result.errors) == 1
+    assert "no target allocation" in result.errors[0]
+
+    row = sheets_service.appended_rows[0]
+    assert row[-2] == "error"
+    assert "no target allocation" in row[-1]
 
 
 def test_pull_is_idempotent_on_repeat_runs(seeded_conn, isolated_state):
